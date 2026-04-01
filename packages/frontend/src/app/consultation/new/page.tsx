@@ -15,26 +15,32 @@ interface Patient {
 }
 
 type Step = 'patient' | 'mode' | 'creating';
-type ConsultationMode = 'quick' | 'standard' | 'comprehensive';
+type Mode = 'quick' | 'standard' | 'comprehensive';
 
-const MODES: { key: ConsultationMode; title: string; description: string; borderColor: string; selectedBg: string }[] = [
+const MODE_OPTIONS: {
+  value: Mode;
+  label: string;
+  description: string;
+  borderColor: string;
+  selectedBg: string;
+}[] = [
   {
-    key: 'quick',
-    title: 'Quick Follow-Up',
+    value: 'quick',
+    label: 'Quick Follow-Up',
     description: 'Stable chronic disease, medication refills. Under 60 seconds.',
     borderColor: 'border-green-500',
     selectedBg: 'bg-green-50',
   },
   {
-    key: 'standard',
-    title: 'Standard',
+    value: 'standard',
+    label: 'Standard',
     description: 'New complaints, moderate complexity. 2-3 minutes.',
     borderColor: 'border-blue-500',
     selectedBg: 'bg-blue-50',
   },
   {
-    key: 'comprehensive',
-    title: 'Comprehensive Workup',
+    value: 'comprehensive',
+    label: 'Comprehensive Workup',
     description: 'Complex multi-system, diagnostic uncertainty. 5-8 minutes.',
     borderColor: 'border-purple-500',
     selectedBg: 'bg-purple-50',
@@ -47,7 +53,7 @@ export default function NewConsultationPage() {
 
   const [step, setStep] = useState<Step>('patient');
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
-  const [selectedMode, setSelectedMode] = useState<ConsultationMode>('standard');
+  const [selectedMode, setSelectedMode] = useState<Mode>('standard');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(false);
@@ -64,7 +70,7 @@ export default function NewConsultationPage() {
           setSelectedPatient(patient);
           setStep('mode');
         })
-        .catch(() => setError('Failed to load patient'))
+        .catch(() => setError('Failed to load patient.'))
         .finally(() => setLoading(false));
     }
   }, [searchParams]);
@@ -102,6 +108,7 @@ export default function NewConsultationPage() {
   const handleChangePatient = () => {
     setSelectedPatient(null);
     setStep('patient');
+    setError('');
   };
 
   const handleStartConsultation = async () => {
@@ -115,7 +122,7 @@ export default function NewConsultationPage() {
       });
       router.push(`/consultation/${result.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create consultation');
+      setError(err instanceof Error ? err.message : 'Failed to create consultation.');
       setStep('mode');
     }
   };
@@ -138,42 +145,22 @@ export default function NewConsultationPage() {
           </div>
         )}
 
-        {/* Step indicators */}
-        <div className="flex items-center gap-3 mb-8">
-          <span className={`px-3 py-1 rounded-full text-sm font-medium ${step === 'patient' ? 'bg-cureocity-primary text-white' : selectedPatient ? 'bg-green-100 text-green-800' : 'bg-slate-100 text-cureocity-muted'}`}>
-            1. Patient
+        {/* Step indicator */}
+        <div className="flex items-center gap-2 mb-8 text-sm">
+          <span className={step === 'patient' ? 'font-bold text-cureocity-primary' : 'text-cureocity-muted'}>
+            1. Select Patient
           </span>
           <span className="text-cureocity-muted">&rarr;</span>
-          <span className={`px-3 py-1 rounded-full text-sm font-medium ${step === 'mode' ? 'bg-cureocity-primary text-white' : 'bg-slate-100 text-cureocity-muted'}`}>
-            2. Mode
+          <span className={step === 'mode' ? 'font-bold text-cureocity-primary' : 'text-cureocity-muted'}>
+            2. Choose Mode
           </span>
           <span className="text-cureocity-muted">&rarr;</span>
-          <span className={`px-3 py-1 rounded-full text-sm font-medium ${step === 'creating' ? 'bg-cureocity-primary text-white' : 'bg-slate-100 text-cureocity-muted'}`}>
+          <span className={step === 'creating' ? 'font-bold text-cureocity-primary' : 'text-cureocity-muted'}>
             3. Start
           </span>
         </div>
 
-        {/* Selected patient card (shown on mode/creating steps) */}
-        {selectedPatient && step !== 'patient' && (
-          <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6 flex items-center justify-between">
-            <div>
-              <h3 className="font-medium text-cureocity-text">{selectedPatient.name}</h3>
-              <p className="text-sm text-cureocity-muted">
-                {selectedPatient.age}y / {selectedPatient.gender} &middot; {selectedPatient.phone}
-              </p>
-            </div>
-            {step === 'mode' && (
-              <button
-                onClick={handleChangePatient}
-                className="text-sm text-cureocity-primary hover:text-teal-800 font-medium"
-              >
-                Change
-              </button>
-            )}
-          </div>
-        )}
-
-        {/* Step 1: Select Patient */}
+        {/* Step 1: Patient Selection */}
         {step === 'patient' && !selectedPatient && (
           <div>
             <h2 className="text-lg font-semibold text-cureocity-text mb-4">Select Patient</h2>
@@ -184,10 +171,8 @@ export default function NewConsultationPage() {
               placeholder="Search by name, phone, or patient ID..."
               className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-cureocity-primary focus:border-transparent outline-none mb-4"
             />
-
             {loading && <p className="text-cureocity-muted text-sm">Searching...</p>}
-
-            <div className="space-y-2">
+            <div className="space-y-3">
               {searchResults.map((patient) => (
                 <button
                   key={patient.id}
@@ -201,30 +186,48 @@ export default function NewConsultationPage() {
                 </button>
               ))}
               {!loading && searchQuery.length >= 2 && searchResults.length === 0 && (
-                <p className="text-cureocity-muted text-sm text-center py-8">
-                  No patients found.
-                </p>
+                <p className="text-cureocity-muted text-sm text-center py-8">No patients found.</p>
               )}
             </div>
           </div>
         )}
 
-        {/* Step 2: Select Mode */}
+        {/* Selected patient card (visible in mode step) */}
+        {selectedPatient && (step === 'mode' || step === 'patient') && (
+          <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-medium text-cureocity-text">{selectedPatient.name}</h3>
+                <p className="text-sm text-cureocity-muted">
+                  {selectedPatient.age}y / {selectedPatient.gender} &middot; {selectedPatient.phone}
+                </p>
+              </div>
+              <button
+                onClick={handleChangePatient}
+                className="text-sm text-cureocity-primary hover:text-teal-800 underline"
+              >
+                Change
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 2: Mode Selection */}
         {step === 'mode' && (
           <div>
-            <h2 className="text-lg font-semibold text-cureocity-text mb-4">Select Consultation Mode</h2>
+            <h2 className="text-lg font-semibold text-cureocity-text mb-4">Choose Consultation Mode</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-              {MODES.map((mode) => (
+              {MODE_OPTIONS.map((mode) => (
                 <button
-                  key={mode.key}
-                  onClick={() => setSelectedMode(mode.key)}
-                  className={`p-6 rounded-xl border-2 text-left transition ${
-                    selectedMode === mode.key
+                  key={mode.value}
+                  onClick={() => setSelectedMode(mode.value)}
+                  className={`text-left p-4 rounded-xl border-2 transition ${
+                    selectedMode === mode.value
                       ? `${mode.borderColor} ${mode.selectedBg}`
                       : 'border-slate-200 bg-white hover:border-slate-300'
                   }`}
                 >
-                  <h3 className="font-semibold text-cureocity-text mb-2">{mode.title}</h3>
+                  <h3 className="font-semibold text-cureocity-text mb-1">{mode.label}</h3>
                   <p className="text-sm text-cureocity-muted">{mode.description}</p>
                 </button>
               ))}
@@ -241,8 +244,8 @@ export default function NewConsultationPage() {
         {/* Step 3: Creating */}
         {step === 'creating' && (
           <div className="text-center py-16">
-            <div className="animate-spin h-8 w-8 border-4 border-cureocity-primary border-t-transparent rounded-full mx-auto mb-4" />
-            <p className="text-cureocity-muted">Setting up your consultation...</p>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cureocity-primary mx-auto mb-4" />
+            <p className="text-cureocity-muted">Starting consultation...</p>
           </div>
         )}
       </main>
