@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import AmbientPanel from '@/components/AmbientPanel';
 
 // --- Types ---
 
@@ -78,6 +79,19 @@ interface SafetyNetAlert {
   doctor_action?: string;
 }
 
+interface SOAPNote {
+  subjective: string;
+  objective: string;
+  assessment: string;
+  plan: string;
+}
+
+interface FollowUp {
+  id: string;
+  scheduled_date: string;
+  status: string;
+}
+
 interface Consultation {
   id: string;
   patient_id: string;
@@ -88,7 +102,7 @@ interface Consultation {
   ended_at?: string;
   transcript?: string;
   consultation_data?: unknown;
-  soap_note?: unknown;
+  soap_note?: SOAPNote | null;
   patient: Patient;
   diagnoses: Diagnosis[];
   prescriptions: Prescription[];
@@ -161,6 +175,15 @@ export default function ConsultationPage() {
   const [labForm, setLabForm] = useState({ test_name: '', urgency: 'routine' as 'routine' | 'urgent' | 'stat' });
   const [labSubmitting, setLabSubmitting] = useState(false);
 
+  // Follow-ups
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const [showFollowUpForm, setShowFollowUpForm] = useState(false);
+  const [followUpDate, setFollowUpDate] = useState('');
+  const [followUpSubmitting, setFollowUpSubmitting] = useState(false);
+
+  // Safety checks
+  const [runningChecks, setRunningChecks] = useState(false);
+
   // Sign
   const [signing, setSigning] = useState(false);
 
@@ -170,6 +193,9 @@ export default function ConsultationPage() {
     try {
       const data = await api.get<Consultation>(`/consultations/${id}`);
       setConsultation(data);
+      // Fetch follow-ups
+      const fups = await api.get<FollowUp[]>(`/consultations/${id}/follow-ups`);
+      setFollowUps(fups);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load consultation.');
     } finally {
@@ -259,6 +285,48 @@ export default function ConsultationPage() {
     }
   };
 
+  const runSafetyChecks = async () => {
+    setRunningChecks(true);
+    setError('');
+    try {
+      await api.post(`/consultations/${id}/run-safety-checks`, {
+        kbeRedFlags: [],
+        kbeScoredConditions: [],
+      });
+      await fetchConsultation();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to run safety checks.');
+    } finally {
+      setRunningChecks(false);
+    }
+  };
+
+  const handleAlertAction = async (alertId: string, action: 'accepted' | 'dismissed' | 'overridden') => {
+    try {
+      await api.post(`/consultations/${id}/safety-net/${alertId}/action`, { action });
+      await fetchConsultation();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update alert.');
+    }
+  };
+
+  const submitFollowUp = async () => {
+    if (!followUpDate) return;
+    setFollowUpSubmitting(true);
+    setError('');
+    try {
+      await api.post(`/consultations/${id}/follow-ups`, { scheduled_date: followUpDate });
+      setShowFollowUpForm(false);
+      setFollowUpDate('');
+      const fups = await api.get<FollowUp[]>(`/consultations/${id}/follow-ups`);
+      setFollowUps(fups);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to schedule follow-up.');
+    } finally {
+      setFollowUpSubmitting(false);
+    }
+  };
+
   const signConsultation = async () => {
     setSigning(true);
     setError('');
@@ -293,6 +361,7 @@ export default function ConsultationPage() {
   const patient = consultation.patient;
   const vitals = consultation.vitals?.[0];
   const allDrugs = consultation.prescriptions?.flatMap((p: Prescription) => p.drugs) || [];
+  const soapNote = consultation.soap_note;
 
   const inputClass = 'w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-cureocity-primary focus:border-transparent outline-none';
   const inputSmClass = 'px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-cureocity-primary focus:border-transparent outline-none text-sm';
@@ -359,6 +428,54 @@ export default function ConsultationPage() {
               )}
             </div>
 
+            {/* Ambient Listening Panel */}
+            <AmbientPanel
+              consultationId={id}
+              readonly={readonly}
+              onTranscriptComplete={() => fetchConsultation()}
+            />
+
+            {/* SOAP Note */}
+            {soapNote && (soapNote.subjective || soapNote.objective || soapNote.assessment || soapNote.plan) && (
+              <div className="bg-white rounded-xl border border-slate-200 p-6">
+                <h3 className="font-semibold text-cureocity-text mb-4">SOAP Note</h3>
+                <div className="space-y-4 text-sm">
+                  {soapNote.subjective && (
+                    <div>
+                      <p className="font-medium text-cureocity-primary mb-1">S - Subjective</p>
+                      <p className="text-cureocity-text whitespace-pre-wrap">{soapNote.subjective}</p>
+                    </div>
+                  )}
+                  {soapNote.objective && (
+                    <div>
+                      <p className="font-medium text-cureocity-primary mb-1">O - Objective</p>
+                      <p className="text-cureocity-text whitespace-pre-wrap">{soapNote.objective}</p>
+                    </div>
+                  )}
+                  {soapNote.assessment && (
+                    <div>
+                      <p className="font-medium text-cureocity-primary mb-1">A - Assessment</p>
+                      <p className="text-cureocity-text whitespace-pre-wrap">{soapNote.assessment}</p>
+                    </div>
+                  )}
+                  {soapNote.plan && (
+                    <div>
+                      <p className="font-medium text-cureocity-primary mb-1">P - Plan</p>
+                      <p className="text-cureocity-text whitespace-pre-wrap">{soapNote.plan}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Transcript (read-only, for signed consultations) */}
+            {readonly && consultation.transcript && (
+              <div className="bg-white rounded-xl border border-slate-200 p-6">
+                <h3 className="font-semibold text-cureocity-text mb-4">Transcript</h3>
+                <p className="text-sm text-cureocity-text whitespace-pre-wrap">{consultation.transcript}</p>
+              </div>
+            )}
+
             {/* Vitals */}
             <div className="bg-white rounded-xl border border-slate-200 p-6">
               <h3 className="font-semibold text-cureocity-text mb-4">Vitals</h3>
@@ -423,7 +540,7 @@ export default function ConsultationPage() {
                         <input type="number" placeholder="BP Sys" value={vitalsForm.bp_systolic} onChange={(e) => setVitalsForm((f) => ({ ...f, bp_systolic: e.target.value }))} className={inputSmClass} />
                         <input type="number" placeholder="BP Dia" value={vitalsForm.bp_diastolic} onChange={(e) => setVitalsForm((f) => ({ ...f, bp_diastolic: e.target.value }))} className={inputSmClass} />
                         <input type="number" placeholder="Pulse" value={vitalsForm.pulse} onChange={(e) => setVitalsForm((f) => ({ ...f, pulse: e.target.value }))} className={inputSmClass} />
-                        <input type="number" placeholder="Temp (°F)" value={vitalsForm.temperature} onChange={(e) => setVitalsForm((f) => ({ ...f, temperature: e.target.value }))} className={inputSmClass} />
+                        <input type="number" placeholder="Temp (F)" value={vitalsForm.temperature} onChange={(e) => setVitalsForm((f) => ({ ...f, temperature: e.target.value }))} className={inputSmClass} />
                         <input type="number" placeholder="SpO2 (%)" value={vitalsForm.spo2} onChange={(e) => setVitalsForm((f) => ({ ...f, spo2: e.target.value }))} className={inputSmClass} />
                         <input type="number" placeholder="Weight (kg)" value={vitalsForm.weight} onChange={(e) => setVitalsForm((f) => ({ ...f, weight: e.target.value }))} className={inputSmClass} />
                         <input type="number" placeholder="Height (cm)" value={vitalsForm.height} onChange={(e) => setVitalsForm((f) => ({ ...f, height: e.target.value }))} className={inputSmClass} />
@@ -635,6 +752,84 @@ export default function ConsultationPage() {
           {/* --- RIGHT SIDEBAR --- */}
           <div className="lg:col-span-1 space-y-6">
 
+            {/* Safety Net Alerts */}
+            <div className="bg-white rounded-xl border border-slate-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-cureocity-text">Safety Net Alerts</h3>
+                {!readonly && (
+                  <button
+                    onClick={runSafetyChecks}
+                    disabled={runningChecks}
+                    className="px-3 py-1 bg-amber-100 text-amber-800 rounded-lg text-xs font-medium hover:bg-amber-200 transition disabled:opacity-50"
+                  >
+                    {runningChecks ? 'Running...' : 'Run Checks'}
+                  </button>
+                )}
+              </div>
+              {consultation.safety_net_alerts.length > 0 ? (
+                <div className="space-y-3">
+                  {consultation.safety_net_alerts.map((alert) => {
+                    let borderClass = 'border-green-400';
+                    let bgClass = '';
+                    let label = 'AI Agrees';
+                    if (alert.signal === 'yellow') {
+                      borderClass = 'border-amber-400';
+                      bgClass = '';
+                      label = 'Warning';
+                    } else if (alert.signal === 'red') {
+                      borderClass = 'border-red-400';
+                      bgClass = 'bg-red-50';
+                      label = 'Action Required';
+                    }
+
+                    return (
+                      <div key={alert.id} className={`p-3 rounded-lg border-2 ${borderClass} ${bgClass}`}>
+                        {alert.signal === 'green' && (
+                          <span className="text-xs font-medium text-green-700 mb-1 block">{label}</span>
+                        )}
+                        {alert.signal === 'yellow' && (
+                          <span className="text-xs font-medium text-amber-700 mb-1 block">&#9888; {label}</span>
+                        )}
+                        {alert.signal === 'red' && (
+                          <span className="text-xs font-bold text-red-700 mb-1 block">{label}</span>
+                        )}
+                        <p className="text-sm text-cureocity-text">{alert.message}</p>
+                        {alert.category && (
+                          <span className="text-xs text-cureocity-muted mt-1 block">{alert.category.replace(/_/g, ' ')}</span>
+                        )}
+                        {/* Doctor action buttons */}
+                        {!readonly && !alert.doctor_action && alert.signal !== 'green' && (
+                          <div className="flex gap-1 mt-2">
+                            <button
+                              onClick={() => handleAlertAction(alert.id, 'accepted')}
+                              className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs hover:bg-green-200"
+                            >
+                              Accept
+                            </button>
+                            <button
+                              onClick={() => handleAlertAction(alert.id, 'dismissed')}
+                              className="px-2 py-1 bg-slate-100 text-slate-600 rounded text-xs hover:bg-slate-200"
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        )}
+                        {alert.doctor_action && (
+                          <span className={`text-xs mt-1 block font-medium ${
+                            alert.doctor_action === 'accepted' ? 'text-green-600' : 'text-slate-500'
+                          }`}>
+                            {alert.doctor_action}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-cureocity-muted">No safety alerts. Run checks to analyze.</p>
+              )}
+            </div>
+
             {/* Gap Questions */}
             <div className="bg-white rounded-xl border border-slate-200 p-6">
               <h3 className="font-semibold text-cureocity-text mb-4">Gap Questions</h3>
@@ -656,46 +851,55 @@ export default function ConsultationPage() {
               )}
             </div>
 
-            {/* Safety Net Alerts */}
+            {/* Follow-ups */}
             <div className="bg-white rounded-xl border border-slate-200 p-6">
-              <h3 className="font-semibold text-cureocity-text mb-4">Safety Net Alerts</h3>
-              {consultation.safety_net_alerts.length > 0 ? (
-                <div className="space-y-3">
-                  {consultation.safety_net_alerts.map((alert) => {
-                    let borderClass = 'border-green-400';
-                    let bgClass = '';
-                    let label = 'AI Agrees';
-                    if (alert.signal === 'yellow') {
-                      borderClass = 'border-amber-400';
-                      bgClass = '';
-                      label = '';
-                    } else if (alert.signal === 'red') {
-                      borderClass = 'border-red-400';
-                      bgClass = 'bg-red-50';
-                      label = '';
-                    }
-
-                    return (
-                      <div key={alert.id} className={`p-3 rounded-lg border-2 ${borderClass} ${bgClass}`}>
-                        {alert.signal === 'green' && (
-                          <span className="text-xs font-medium text-green-700 mb-1 block">{label}</span>
-                        )}
-                        {alert.signal === 'yellow' && (
-                          <span className="text-xs font-medium text-amber-700 mb-1 block">&#9888; Warning</span>
-                        )}
-                        {alert.signal === 'red' && (
-                          <span className="text-xs font-bold text-red-700 mb-1 block">Action Required</span>
-                        )}
-                        <p className="text-sm text-cureocity-text">{alert.message}</p>
-                        {alert.evidence && (
-                          <p className="text-xs text-cureocity-muted mt-1">{alert.evidence}</p>
-                        )}
-                      </div>
-                    );
-                  })}
+              <h3 className="font-semibold text-cureocity-text mb-4">Follow-ups</h3>
+              {followUps.length > 0 ? (
+                <div className="space-y-2 mb-4">
+                  {followUps.map((fu) => (
+                    <div key={fu.id} className="flex items-center justify-between p-3 rounded-lg border border-slate-100 bg-slate-50">
+                      <span className="text-sm text-cureocity-text font-medium">
+                        {new Date(fu.scheduled_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </span>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                        fu.status === 'scheduled' ? 'bg-blue-100 text-blue-800' :
+                        fu.status === 'completed' ? 'bg-green-100 text-green-800' :
+                        fu.status === 'missed' ? 'bg-red-100 text-red-800' :
+                        'bg-slate-100 text-slate-600'
+                      }`}>
+                        {fu.status}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               ) : (
-                <p className="text-sm text-cureocity-muted">No safety alerts.</p>
+                <p className="text-sm text-cureocity-muted mb-4">No follow-ups scheduled.</p>
+              )}
+
+              {!readonly && (
+                <div>
+                  {!showFollowUpForm ? (
+                    <button onClick={() => setShowFollowUpForm(true)} className={btnSecondary}>
+                      Schedule Follow-up
+                    </button>
+                  ) : (
+                    <div className="space-y-3 border-t border-slate-100 pt-4">
+                      <input
+                        type="date"
+                        value={followUpDate}
+                        onChange={(e) => setFollowUpDate(e.target.value)}
+                        min={new Date().toISOString().split('T')[0]}
+                        className={inputSmClass}
+                      />
+                      <div className="flex gap-2">
+                        <button onClick={submitFollowUp} disabled={followUpSubmitting || !followUpDate} className={btnPrimary}>
+                          {followUpSubmitting ? 'Scheduling...' : 'Schedule'}
+                        </button>
+                        <button onClick={() => setShowFollowUpForm(false)} className={btnSecondary}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>

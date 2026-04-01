@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { db } from '../db/connection.js';
 import { AppError } from '../middleware/errorHandler.js';
 import type { AuthenticatedRequest } from '../types/index.js';
+import { extractClinicalEntities, generateSOAPNote } from '../services/gemini.js';
+import { runAndPersistSafetyChecks } from '../services/safety-net.js';
+import { checkDrugInteractions, checkAllergyConflicts } from '../services/drug-interactions.js';
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -425,6 +428,252 @@ export async function addDiagnosis(
       .returning('*');
 
     res.status(201).json(diagnosis);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 1 – AI-powered endpoints
+// ---------------------------------------------------------------------------
+
+/** POST /consultations/:id/extract-entities – Run Gemini entity extraction on transcript */
+export async function extractEntities(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const consultation = await findConsultation(req.params.id, req.doctor.id);
+
+    const transcript = req.body.transcript || consultation.transcript;
+    if (!transcript) {
+      throw new AppError('No transcript available for entity extraction', 400, 'NO_TRANSCRIPT');
+    }
+
+    const entities = await extractClinicalEntities(transcript);
+
+    // Optionally persist transcript if sent in body
+    if (req.body.transcript && req.body.transcript !== consultation.transcript) {
+      await db('consultations')
+        .where({ id: consultation.id })
+        .update({ transcript: req.body.transcript, updated_at: new Date() });
+    }
+
+    res.status(200).json(entities);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** POST /consultations/:id/soap-note – Generate SOAP note from consultation data */
+export async function generateSOAP(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const consultation = await findConsultation(req.params.id, req.doctor.id);
+
+    const [patient, diagnoses, prescriptions, labOrders, vitals] = await Promise.all([
+      db('patients').where({ id: consultation.patient_id }).first(),
+      db('diagnoses').where({ consultation_id: consultation.id }),
+      db('prescriptions').where({ consultation_id: consultation.id }),
+      db('lab_orders').where({ consultation_id: consultation.id }),
+      db('vitals').where({ consultation_id: consultation.id }).first(),
+    ]);
+
+    const soapNote = await generateSOAPNote({
+      transcript: consultation.transcript,
+      diagnoses,
+      vitals,
+      prescriptions,
+      labOrders,
+      patient,
+    });
+
+    // Persist the SOAP note
+    await db('consultations')
+      .where({ id: consultation.id })
+      .update({ soap_note: JSON.stringify(soapNote), updated_at: new Date() });
+
+    res.status(200).json(soapNote);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** POST /consultations/:id/run-safety-checks – Trigger safety net analysis */
+export async function triggerSafetyChecks(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const consultation = await findConsultation(req.params.id, req.doctor.id);
+
+    const [patient, diagnoses, prescriptions, labOrders, vitals] = await Promise.all([
+      db('patients').where({ id: consultation.patient_id }).first(),
+      db('diagnoses').where({ consultation_id: consultation.id }),
+      db('prescriptions').where({ consultation_id: consultation.id }),
+      db('lab_orders').where({ consultation_id: consultation.id }),
+      db('vitals').where({ consultation_id: consultation.id }).first(),
+    ]);
+
+    const drugNames = prescriptions.flatMap((p: any) => {
+      const drugs = typeof p.drugs === 'string' ? JSON.parse(p.drugs) : p.drugs;
+      return drugs.map((d: any) => d.name);
+    });
+
+    const alerts = await runAndPersistSafetyChecks({
+      consultationId: consultation.id,
+      diagnoses,
+      prescriptionDrugs: drugNames,
+      labOrders: labOrders.map((lo: any) => lo.test_name),
+      vitals: vitals || undefined,
+      patientAllergies: patient?.allergies || [],
+      patientComorbidities: patient?.comorbidities || [],
+      patientAge: patient?.age,
+      kbeRedFlags: req.body.kbeRedFlags || [],
+      kbeScoredConditions: req.body.kbeScoredConditions || [],
+    });
+
+    res.status(200).json(alerts);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** POST /consultations/:id/safety-net/:alertId/action – Doctor acts on an alert */
+export async function handleAlertAction(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    await findConsultation(req.params.id, req.doctor.id);
+
+    const actionSchema = z.object({
+      action: z.enum(['accepted', 'dismissed', 'overridden']),
+      override_reason: z.string().optional(),
+    });
+
+    const parsed = actionSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new AppError('Invalid action', 400, 'VALIDATION_ERROR');
+    }
+
+    const alert = await db('safety_net_alerts')
+      .where({ id: req.params.alertId, consultation_id: req.params.id })
+      .first();
+
+    if (!alert) {
+      throw new AppError('Alert not found', 404, 'NOT_FOUND');
+    }
+
+    const [updated] = await db('safety_net_alerts')
+      .where({ id: req.params.alertId })
+      .update({
+        doctor_action: parsed.data.action,
+        override_reason: parsed.data.override_reason || null,
+      })
+      .returning('*');
+
+    res.status(200).json(updated);
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Follow-ups
+// ---------------------------------------------------------------------------
+
+const followUpSchema = z.object({
+  scheduled_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be YYYY-MM-DD'),
+});
+
+/** POST /consultations/:id/follow-ups – Schedule a follow-up */
+export async function createFollowUp(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    const consultation = await findConsultation(req.params.id, req.doctor.id);
+
+    const parsed = followUpSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new AppError(
+        parsed.error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
+        400,
+        'VALIDATION_ERROR',
+      );
+    }
+
+    const [followUp] = await db('follow_ups')
+      .insert({
+        consultation_id: consultation.id,
+        patient_id: consultation.patient_id,
+        doctor_id: req.doctor.id,
+        scheduled_date: parsed.data.scheduled_date,
+        status: 'scheduled',
+      })
+      .returning('*');
+
+    res.status(201).json(followUp);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** GET /consultations/:id/follow-ups – List follow-ups for a consultation */
+export async function getFollowUps(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    await findConsultation(req.params.id, req.doctor.id);
+
+    const followUps = await db('follow_ups')
+      .where({ consultation_id: req.params.id })
+      .orderBy('scheduled_date', 'asc');
+
+    res.status(200).json(followUps);
+  } catch (err) {
+    next(err);
+  }
+}
+
+/** PATCH /consultations/:id/follow-ups/:followUpId – Update follow-up status */
+export async function updateFollowUp(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  try {
+    await findConsultation(req.params.id, req.doctor.id);
+
+    const statusSchema = z.object({
+      status: z.enum(['scheduled', 'completed', 'missed', 'cancelled']),
+    });
+
+    const parsed = statusSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw new AppError('Invalid status', 400, 'VALIDATION_ERROR');
+    }
+
+    const [updated] = await db('follow_ups')
+      .where({ id: req.params.followUpId, consultation_id: req.params.id })
+      .update({ status: parsed.data.status, updated_at: new Date() })
+      .returning('*');
+
+    if (!updated) {
+      throw new AppError('Follow-up not found', 404, 'NOT_FOUND');
+    }
+
+    res.status(200).json(updated);
   } catch (err) {
     next(err);
   }

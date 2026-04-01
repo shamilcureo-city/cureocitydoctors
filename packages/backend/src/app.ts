@@ -5,6 +5,7 @@ import compression from 'compression';
 import morgan from 'morgan';
 import { config } from './config/index.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { auditLog } from './middleware/audit.js';
 import authRoutes from './routes/auth.js';
 import patientRoutes from './routes/patients.js';
 import consultationRoutes from './routes/consultations.js';
@@ -38,8 +39,8 @@ app.get('/health', (_req: Request, res: Response) => {
 // API routes
 // ---------------------------------------------------------------------------
 app.use('/api/auth', authRoutes);
-app.use('/api/patients', patientRoutes);
-app.use('/api/consultations', consultationRoutes);
+app.use('/api/patients', auditLog as any, patientRoutes);
+app.use('/api/consultations', auditLog as any, consultationRoutes);
 app.use('/api/kbe', kbeRoutes);
 
 // ---------------------------------------------------------------------------
