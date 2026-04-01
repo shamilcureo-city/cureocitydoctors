@@ -27,7 +27,7 @@ export default function PatientsPage() {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      setPatients(data.patients || []);
+      setPatients(data.data || []);
     } catch {
       setPatients([]);
     } finally {

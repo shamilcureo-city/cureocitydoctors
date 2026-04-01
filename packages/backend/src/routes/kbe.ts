@@ -9,5 +9,6 @@ router.use(authenticate as any);
 
 router.get('/conditions', kbeController.listConditions as any);
 router.get('/conditions/:id', kbeController.getCondition as any);
+router.post('/score', kbeController.scoreSymptoms as any);
 
 export default router;
