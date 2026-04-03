@@ -128,8 +128,8 @@ export default function NewConsultationPage() {
   };
 
   return (
-    <div className="min-h-screen bg-cureocity-bg">
-      <header className="bg-white border-b border-slate-200 px-6 py-4">
+    <div className="brand-shell">
+      <header className="bg-white/80 border-b border-teal-100 px-6 py-4 backdrop-blur">
         <div className="max-w-7xl mx-auto flex items-center gap-4">
           <a href="/dashboard" className="text-cureocity-primary hover:text-teal-800">
             &larr; Back
@@ -169,7 +169,7 @@ export default function NewConsultationPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name, phone, or patient ID..."
-              className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-cureocity-primary focus:border-transparent outline-none mb-4"
+              className="brand-input mb-4"
             />
             {loading && <p className="text-cureocity-muted text-sm">Searching...</p>}
             <div className="space-y-3">
@@ -177,7 +177,7 @@ export default function NewConsultationPage() {
                 <button
                   key={patient.id}
                   onClick={() => handleSelectPatient(patient)}
-                  className="w-full text-left p-4 bg-white rounded-xl border border-slate-200 hover:border-cureocity-primary transition"
+                  className="brand-card w-full text-left p-4 hover:border-cureocity-primary transition"
                 >
                   <h3 className="font-medium text-cureocity-text">{patient.name}</h3>
                   <p className="text-sm text-cureocity-muted">
@@ -194,7 +194,7 @@ export default function NewConsultationPage() {
 
         {/* Selected patient card (visible in mode step) */}
         {selectedPatient && (step === 'mode' || step === 'patient') && (
-          <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6">
+          <div className="brand-card p-6 mb-6">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-medium text-cureocity-text">{selectedPatient.name}</h3>
@@ -234,7 +234,7 @@ export default function NewConsultationPage() {
             </div>
             <button
               onClick={handleStartConsultation}
-              className="w-full px-4 py-3 bg-cureocity-primary text-white font-semibold rounded-lg hover:bg-teal-800 transition disabled:opacity-50"
+              className="brand-button w-full px-4 py-3"
             >
               Start Consultation
             </button>

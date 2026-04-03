@@ -41,8 +41,8 @@ export default function PatientsPage() {
   }, [query, searchPatients]);
 
   return (
-    <div className="min-h-screen bg-cureocity-bg">
-      <header className="bg-white border-b border-slate-200 px-6 py-4">
+    <div className="brand-shell">
+      <header className="bg-white/80 border-b border-teal-100 px-6 py-4 backdrop-blur">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-4">
             <a href="/dashboard" className="text-cureocity-primary hover:text-teal-800">
@@ -52,7 +52,7 @@ export default function PatientsPage() {
           </div>
           <a
             href="/patients/new"
-            className="px-4 py-2 bg-cureocity-primary text-white rounded-lg text-sm hover:bg-teal-800"
+            className="brand-button px-4 py-2 text-sm"
           >
             + New Patient
           </a>
@@ -60,13 +60,15 @@ export default function PatientsPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search by name, phone, or patient ID..."
-          className="w-full px-4 py-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-cureocity-primary focus:border-transparent outline-none mb-6"
-        />
+        <div className="brand-card p-4 mb-6">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by name, phone, or patient ID..."
+            className="brand-input"
+          />
+        </div>
 
         {loading && <p className="text-cureocity-muted text-sm">Searching...</p>}
 
@@ -75,7 +77,7 @@ export default function PatientsPage() {
             <a
               key={patient.id}
               href={`/patients/${patient.id}`}
-              className="block p-4 bg-white rounded-lg border border-slate-200 hover:border-cureocity-primary transition"
+              className="brand-card block p-4 hover:border-cureocity-primary transition"
             >
               <div className="flex justify-between items-center">
                 <div>

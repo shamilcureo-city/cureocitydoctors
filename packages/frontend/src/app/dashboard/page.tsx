@@ -43,8 +43,8 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-cureocity-bg">
-      <header className="bg-white border-b border-slate-200 px-6 py-4">
+    <div className="brand-shell">
+      <header className="border-b border-teal-100 bg-white/80 px-6 py-4 backdrop-blur">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
           <h1 className="text-xl font-bold text-cureocity-primary">Cureocity</h1>
           <div className="flex items-center gap-4">
@@ -66,31 +66,41 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
+        <section className="brand-card mb-8 p-6 md:p-7">
+          <p className="text-xs font-semibold uppercase tracking-wide text-teal-700">Welcome back</p>
+          <h2 className="mt-2 text-2xl font-bold text-cureocity-text">
+            {doctor?.name ? `Dr. ${doctor.name}` : 'Doctor Dashboard'}
+          </h2>
+          <p className="mt-2 text-sm text-cureocity-muted">
+            Run consultations faster with structured documentation and safety checks.
+          </p>
+        </section>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <a
             href="/consultation/new"
-            className="p-6 bg-cureocity-primary text-white rounded-xl hover:bg-teal-800 transition"
+            className="brand-card p-6 text-cureocity-text transition hover:-translate-y-0.5"
           >
             <h3 className="text-lg font-semibold">New Consultation</h3>
-            <p className="text-teal-100 text-sm mt-1">Start ambient capture</p>
+            <p className="text-cureocity-muted text-sm mt-1">Start ambient capture</p>
           </a>
           <a
             href="/patients"
-            className="p-6 bg-white border border-slate-200 rounded-xl hover:border-cureocity-primary transition"
+            className="brand-card p-6 transition hover:-translate-y-0.5"
           >
             <h3 className="text-lg font-semibold text-cureocity-text">Patient Records</h3>
             <p className="text-cureocity-muted text-sm mt-1">Search and manage patients</p>
           </a>
           <a
             href="/patients/new"
-            className="p-6 bg-white border border-slate-200 rounded-xl hover:border-cureocity-primary transition"
+            className="brand-card p-6 transition hover:-translate-y-0.5"
           >
             <h3 className="text-lg font-semibold text-cureocity-text">Register Patient</h3>
             <p className="text-cureocity-muted text-sm mt-1">Add a new patient</p>
           </a>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-6">
+        <div className="brand-card p-6">
           <h2 className="text-lg font-semibold mb-4">Today&apos;s Queue</h2>
           <p className="text-cureocity-muted text-sm">
             No consultations yet. Start a new consultation to begin.
