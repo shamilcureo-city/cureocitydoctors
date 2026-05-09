@@ -14,6 +14,8 @@ import Step8Panel from './Step8Panel';
 import DisclaimerBanner from './DisclaimerBanner';
 import SeasonalAlert from './SeasonalAlert';
 import KBModal from './KBModal';
+import CriticalValueOverlay from './CriticalValueOverlay';
+import PaediatricBanner from './PaediatricBanner';
 import { useEngine } from '../hooks/useEngine';
 import { logEvent } from '../utils/auditLog';
 import { signOut } from '../lib/auth';
@@ -43,6 +45,7 @@ const WorkflowApp = ({ user }) => {
     getTopKBProtocols, getFullReport,
     getRxDrugOptions, getRxSafetyAlerts, buildRxAdvice, buildReferralLetter,
     searchKB, getAllKB,
+    getCriticalLabAlerts,
   } = useEngine(user?.id ?? null);
 
   const [activeKB, setActiveKB] = useState(null);
@@ -154,6 +157,8 @@ const WorkflowApp = ({ user }) => {
           onOpenKB={setActiveKB}
         />
         <main>
+          <PaediatricBanner patient={patient} />
+          <CriticalValueOverlay alerts={getCriticalLabAlerts ? getCriticalLabAlerts() : []} />
           {activeStep === 1 && (
             <IntakePanel
               onProcess={handleProcessIntake}

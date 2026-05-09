@@ -362,5 +362,7 @@ export function useEngine(doctorId = null) {
     searchKB: EngineCore.searchKB,
     getAllKB: EngineCore.getAllKB,
     lookupKB: EngineCore.lookupKB,
+    // Slice 9 — Critical-value alerts
+    getCriticalLabAlerts: EngineCore.getCriticalLabAlerts,
   };
 }

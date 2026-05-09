@@ -8311,6 +8311,9 @@ export {
 // Slice 8 — Sidebar polish: KB search/browser
 export { lookupKB };
 
+// Slice 9 — Critical-value alerts + paediatric warning
+export { CRITICAL_LAB_RULES };
+
 export const EngineCore = {
   getScore: () => S.scored,
   getDifferential: () => S.differential,
@@ -8605,6 +8608,24 @@ export const EngineCore = {
       nextSteps: [...(S.nextSteps || [])],
       notes: { ...CLINICAL_NOTES },
     };
+  },
+
+  // ── Slice 9 — Critical-value alerts (DOMless) ───────────────
+  // Returns the array of triggered critical lab rules with the value that
+  // fired them. React owns the modal/banner UX; engine just computes which
+  // rules fire from current S.labs.
+  getCriticalLabAlerts: () => {
+    const out = [];
+    for (const rule of CRITICAL_LAB_RULES) {
+      const raw = S.labs?.[rule.test];
+      if (raw == null || raw === '') continue;
+      const val = parseFloat(raw);
+      if (isNaN(val)) continue;
+      const triggered = (rule.op === '>' && val > rule.threshold) ||
+                        (rule.op === '<' && val < rule.threshold);
+      if (triggered) out.push({ ...rule, value: val });
+    }
+    return out;
   },
 
   // ── Slice 8 — KB search/browser (DOMless) ───────────────────
