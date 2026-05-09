@@ -28,6 +28,12 @@ export const config = {
 
 const MODEL = 'gemini-2.5-flash';
 const MAX_INPUT_CHARS = 8000;
+const MAX_AUDIO_BASE64_BYTES = 8 * 1024 * 1024; // ~6 MB raw audio = ~3 min at 256kbps
+const SUPPORTED_AUDIO_MIME = new Set([
+  'audio/wav', 'audio/mpeg', 'audio/mp3', 'audio/aiff',
+  'audio/aac', 'audio/ogg', 'audio/flac', 'audio/mp4',
+  'audio/webm',
+]);
 
 // gemini-2.5-flash pricing (Mar 2026): $0.075/1M input, $0.30/1M output.
 // USD→INR ≈ 84. Used only for ai_calls dashboarding; bill of record is the GCP console.
@@ -40,6 +46,11 @@ const SYSTEM_INSTRUCTION = `You are a clinical-extraction model for Indian prima
   BP = blood pressure         PR = pulse rate         RR = respiratory rate
   SpO2 = oxygen saturation    yo / yrs = years old    M / F = male / female
   s/b = seen by               r/o = rule out          o/e = on examination
+
+When the input is audio, transcribe the doctor's speech faithfully into the
+"transcript" field FIRST (verbatim, including the doctor's own abbreviations
+and Manglish words), then perform extraction from that transcript. If the
+input is text, leave "transcript" empty.
 
 Your job is structured extraction only. You do NOT diagnose, prioritise, or add findings the doctor did not state.
 
@@ -54,6 +65,7 @@ Rules:
 const RESPONSE_SCHEMA = {
   type: SchemaType.OBJECT,
   properties: {
+    transcript: { type: SchemaType.STRING, description: 'Verbatim transcript of the audio. Empty string if input was text.' },
     chief_complaint: { type: SchemaType.STRING, description: 'Patient\'s primary concern in 1 short phrase, expanded to plain English.' },
     normalized_hpi: { type: SchemaType.STRING, description: 'Clean standard-English clinical summary, abbreviations expanded.' },
     demographics: {
@@ -106,9 +118,22 @@ export default async function handler(req) {
   }
 
   const text = typeof body?.text === 'string' ? body.text.trim() : '';
-  if (!text) return jsonResponse({ error: 'text is required' }, 400);
+  const audio = body?.audio; // { data: base64, mimeType: string }
+  const hasAudio = audio && typeof audio.data === 'string' && typeof audio.mimeType === 'string';
+
+  if (!text && !hasAudio) {
+    return jsonResponse({ error: 'text or audio is required' }, 400);
+  }
   if (text.length > MAX_INPUT_CHARS) {
     return jsonResponse({ error: `text too long (max ${MAX_INPUT_CHARS} chars)` }, 413);
+  }
+  if (hasAudio) {
+    if (!SUPPORTED_AUDIO_MIME.has(audio.mimeType)) {
+      return jsonResponse({ error: `audio mimeType ${audio.mimeType} not supported` }, 415);
+    }
+    if (audio.data.length > MAX_AUDIO_BASE64_BYTES) {
+      return jsonResponse({ error: 'audio too large' }, 413);
+    }
   }
 
   const startedAt = Date.now();
@@ -124,7 +149,17 @@ export default async function handler(req) {
       },
     });
 
-    const result = await model.generateContent(text);
+    // Build the prompt parts. Audio first (Gemini transcribes then extracts);
+    // include any text the doctor typed alongside as additional context.
+    const parts = [];
+    if (hasAudio) {
+      parts.push({ inlineData: { data: audio.data, mimeType: audio.mimeType } });
+      parts.push({ text: text || 'Transcribe the audio above and extract clinical fields per the schema.' });
+    } else {
+      parts.push({ text });
+    }
+
+    const result = await model.generateContent(parts);
     const raw = result.response.text();
     const usage = result.response.usageMetadata || {};
     const tokensIn = usage.promptTokenCount ?? 0;
@@ -152,6 +187,7 @@ export default async function handler(req) {
         tokensOut,
         costInr: Number(costInr.toFixed(4)),
         latencyMs,
+        inputModality: hasAudio ? 'audio' : 'text',
       },
     });
   } catch (err) {

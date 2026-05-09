@@ -8,7 +8,11 @@ export const USE_GEMINI = import.meta.env.VITE_USE_GEMINI === 'true';
 
 const EXTRACT_TIMEOUT_MS = 20000;
 
-export async function extractIntake(text) {
+// extractIntake accepts either text or audio (or both — text becomes
+// supplementary context for audio transcription). audio is { data, mimeType }.
+export async function extractIntake({ text, audio } = {}) {
+  if (!text && !audio) throw new Error('text or audio is required');
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), EXTRACT_TIMEOUT_MS);
 
@@ -16,7 +20,7 @@ export async function extractIntake(text) {
     const res = await fetch('/api/intake/extract', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text: text || '', audio }),
       signal: controller.signal,
     });
 

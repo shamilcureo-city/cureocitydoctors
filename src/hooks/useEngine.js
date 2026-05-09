@@ -79,12 +79,14 @@ export function useEngine(doctorId = null) {
     });
   };
 
-  const analyzeNarrative = useCallback(async (text) => {
+  const analyzeNarrative = useCallback(async (input) => {
+    // Accept either a string (legacy text path) or { text, audio } (voice path).
+    const { text = '', audio = null } = typeof input === 'string' ? { text: input } : (input || {});
     setExtractionError(null);
 
-    if (USE_GEMINI) {
+    if (USE_GEMINI && (text || audio)) {
       try {
-        const extracted = await extractIntake(text);
+        const extracted = await extractIntake({ text, audio });
         setExtraction(extracted);
 
         // Hand structured demographics + comorbidities to the engine state so
@@ -99,6 +101,7 @@ export function useEngine(doctorId = null) {
 
         record('intake.analyze', {
           length: text.length,
+          inputModality: extracted._meta?.inputModality || (audio ? 'audio' : 'text'),
           provider: 'gemini',
           model: extracted._meta?.model,
           confidence: extracted.confidence,
@@ -131,6 +134,15 @@ export function useEngine(doctorId = null) {
         // Fall through to the deterministic regex pipeline so the doctor is
         // never blocked by an LLM outage.
       }
+    }
+
+    // Regex fallback only handles text. If we got audio with no transcript
+    // (Gemini failed before transcribing), the doctor needs to retype.
+    if (!text) {
+      const msg = 'Voice intake requires Gemini. Please type the narrative or try again.';
+      setExtractionError(msg);
+      record('intake.analyze.error', { provider: 'regex', message: msg });
+      return false;
     }
 
     try {
