@@ -289,6 +289,17 @@ export function useEngine(doctorId = null) {
 
   const allergyConflicts = EngineCore.getAllergyConflicts();
 
+  // ── Slice 2: structured symptom builder ───────────────────────
+  const [structuredSymptoms, setStructuredSymptomsState] = useState(
+    () => EngineCore.getStructuredSymptoms()
+  );
+  const toggleStructuredSymptom = useCallback((sym) => {
+    const next = EngineCore.toggleStructuredSymptom(sym);
+    setStructuredSymptomsState(next);
+    syncState();
+    record('symptom.toggle', { sym, on: next.includes(sym) });
+  }, [record]);
+
   return {
     engineState,
     extraction,
@@ -306,5 +317,7 @@ export function useEngine(doctorId = null) {
     patient, setPatientField,
     vitals, setVital, clearVital,
     allergies, addAllergy: addAllergyEntry, removeAllergy: removeAllergyEntry, allergyConflicts,
+    // Slice 2
+    structuredSymptoms, toggleStructuredSymptom,
   };
 }

@@ -8290,6 +8290,9 @@ export {
   termPresent,
 };
 
+// Slice 2 — Symptom Builder data + helpers
+export { SYMPTOM_BUILDER_GROUPS };
+
 export const EngineCore = {
   getScore: () => S.scored,
   getDifferential: () => S.differential,
@@ -8343,6 +8346,18 @@ export const EngineCore = {
   },
   removeAllergy: (idx) => { S_ALLERGIES.splice(idx, 1); },
   getAllergies: () => [...S_ALLERGIES],
+
+  // Slice 2 — Structured symptoms. Toggle re-runs the corpus rebuild +
+  // re-score in-place. React reads the new differential via syncState().
+  getStructuredSymptoms: () => [...(S.structuredSymptoms || [])],
+  toggleStructuredSymptom: (sym) => {
+    if (!S.structuredSymptoms) S.structuredSymptoms = [];
+    const idx = S.structuredSymptoms.indexOf(sym);
+    if (idx >= 0) S.structuredSymptoms.splice(idx, 1);
+    else S.structuredSymptoms.push(sym);
+    if (typeof rebuildCorpusAndRescore === 'function') rebuildCorpusAndRescore();
+    return [...S.structuredSymptoms];
+  },
 
   // Allergy conflict checker — pure function, no DOM
   getAllergyConflicts: () => {

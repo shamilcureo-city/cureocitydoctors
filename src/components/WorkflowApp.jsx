@@ -3,6 +3,7 @@ import Header from './Header';
 import Sidebar from './Sidebar';
 import LivePanel from './LivePanel';
 import IntakePanel from './IntakePanel';
+import SymptomBuilder from './SymptomBuilder';
 import ExamPanel from './ExamPanel';
 import MedicationsPanel from './MedicationsPanel';
 import LabsPanel from './LabsPanel';
@@ -31,6 +32,7 @@ const WorkflowApp = ({ user }) => {
     patient, setPatientField,
     vitals, setVital,
     allergies, addAllergy, removeAllergy, allergyConflicts,
+    structuredSymptoms, toggleStructuredSymptom,
   } = useEngine(user?.id ?? null);
 
   const [steps, setSteps] = useState([
@@ -111,8 +113,12 @@ const WorkflowApp = ({ user }) => {
             <div className="step-panel active">
               <div className="mod-header">
                 <div className="mod-title">Missing Clinical Data</div>
-                <div className="mod-desc">Fill in missing history items. Each item updates the differential diagnosis in real time. Critical items are highlighted.</div>
+                <div className="mod-desc">Click symptoms the patient has, then fill in missing history. Each change updates the differential in real time. Critical items are highlighted.</div>
               </div>
+              <SymptomBuilder
+                active={structuredSymptoms}
+                onToggle={toggleStructuredSymptom}
+              />
               <div id="missing-data-content">
                 {engineState.missingData.length > 0 ? (
                   engineState.missingData.map((gap) => {
