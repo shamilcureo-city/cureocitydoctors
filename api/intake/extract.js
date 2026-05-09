@@ -10,7 +10,21 @@
 
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 
-export const config = { runtime: 'edge' };
+// Run in Mumbai (Vercel `bom1`) so the doctor's intake narrative stays on
+// Indian infrastructure for the function lifetime — closer to DPDP-residency
+// expectations and ~50ms RTT to Kerala vs ~250ms US-east.
+//
+// Note: the Gemini inference call itself still routes via Google's public
+// API endpoints. True end-to-end ap-south-1 residency requires migrating to
+// Vertex AI (separate task).
+//
+// Region pinning on Vercel Functions (Node runtime) is supported on Hobby;
+// Edge Functions run globally and cannot be pinned, hence the explicit
+// nodejs runtime here.
+export const config = {
+  runtime: 'nodejs20.x',
+  regions: ['bom1'],
+};
 
 const MODEL = 'gemini-2.5-flash';
 const MAX_INPUT_CHARS = 8000;
