@@ -260,6 +260,8 @@ const WorkflowApp = ({ user }) => {
         <LivePanel
           isProcessing={isProcessing}
           engineState={engineState}
+          drugs={engineState.drugs}
+          allergies={allergies}
         />
       </div>
     </div>

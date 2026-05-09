@@ -8296,6 +8296,9 @@ export { SYMPTOM_BUILDER_GROUPS };
 // Slice 3 — Clinical notes + case reset
 export { CLINICAL_NOTES };
 
+// Slice 4 — Live panel data: follow-up questions + KB id mapping
+export { FOLLOW_UP_QUESTIONS_DB, KB_ID_MAP, LAB_DEFS, getLabStatus };
+
 export const EngineCore = {
   getScore: () => S.scored,
   getDifferential: () => S.differential,

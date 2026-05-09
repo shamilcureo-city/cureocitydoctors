@@ -74,6 +74,8 @@ export function useEngine(doctorId = null) {
       },
       missingData: [...S.gaps],
       certainty: S.certainty || 0,
+      certaintyNote: S.certaintyNote || '',
+      labAlerts: [...(S.labAlerts || [])],
       rawInput: S.rawInput,
       examFindings: { ...S.examFindings },
       activeExamFindings: { ...S.activeExamFindings },
