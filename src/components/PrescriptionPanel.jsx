@@ -74,7 +74,7 @@ const PrescriptionPanel = ({ engineState, onPrev }) => {
       )}
 
       <div className="btn-row" style={{ marginTop: '8px' }}>
-        <button className="btn btn-secondary" onClick={onPrev}>← Back to Assessment</button>
+        <button className="btn btn-secondary" onClick={onPrev}>← Back to Treatment</button>
         <button className="btn btn-primary" disabled>📧 Generate Referral Letter</button>
       </div>
     </div>

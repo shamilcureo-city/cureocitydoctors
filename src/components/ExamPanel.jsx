@@ -65,7 +65,7 @@ const ExamPanel = ({
         </div>
         <div className="btn-row" style={{ marginTop: '8px' }}>
           <button className="btn btn-secondary" onClick={onPrev}>← Back</button>
-          <button className="btn btn-primary" onClick={onNext}>Continue to Medications →</button>
+          <button className="btn btn-primary" onClick={onNext}>Continue to Diagnostics →</button>
         </div>
       </div>
     );
@@ -233,7 +233,7 @@ const ExamPanel = ({
       </div>
       <div className="btn-row" style={{ marginTop: '8px' }}>
         <button className="btn btn-secondary" onClick={onPrev}>← Back</button>
-        <button className="btn btn-primary" onClick={onNext}>Continue to Medications →</button>
+        <button className="btn btn-primary" onClick={onNext}>Continue to Diagnostics →</button>
       </div>
     </div>
   );

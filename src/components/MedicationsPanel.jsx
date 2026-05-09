@@ -116,7 +116,7 @@ const MedicationsPanel = ({ engineState, onAddDrug, onRemoveDrug, onNext, onPrev
 
       <div className="btn-row" style={{ marginTop: '8px' }}>
         <button className="btn btn-secondary" onClick={onPrev}>← Back</button>
-        <button className="btn btn-primary" onClick={onNext}>Continue to Lab Results →</button>
+        <button className="btn btn-primary" onClick={onNext}>Continue to Finalize →</button>
       </div>
     </div>
   );

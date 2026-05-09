@@ -223,17 +223,9 @@ const WorkflowApp = ({ user }) => {
             />
           )}
 
+          {/* Step 4 — Diagnostics (Labs). Sidebar order is the clinical
+              one: investigate, then assess, then treat. */}
           {activeStep === 4 && (
-            <MedicationsPanel
-              engineState={engineState}
-              onAddDrug={handleAddDrug}
-              onRemoveDrug={handleRemoveDrug}
-              onNext={handleNextStep}
-              onPrev={handlePrevStep}
-            />
-          )}
-
-          {activeStep === 5 && (
             <LabsPanel
               engineState={engineState}
               onUpdateLab={handleUpdateLab}
@@ -242,9 +234,21 @@ const WorkflowApp = ({ user }) => {
             />
           )}
 
-          {activeStep === 6 && (
+          {/* Step 5 — Assessment / differential */}
+          {activeStep === 5 && (
             <AssessmentPanel
               engineState={engineState}
+              onNext={handleNextStep}
+              onPrev={handlePrevStep}
+            />
+          )}
+
+          {/* Step 6 — Treatment / medications */}
+          {activeStep === 6 && (
+            <MedicationsPanel
+              engineState={engineState}
+              onAddDrug={handleAddDrug}
+              onRemoveDrug={handleRemoveDrug}
               onNext={handleNextStep}
               onPrev={handlePrevStep}
             />

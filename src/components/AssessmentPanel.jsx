@@ -178,7 +178,7 @@ const AssessmentPanel = ({ engineState, onNext, onPrev }) => {
 
       <div className="btn-row" style={{ marginTop: '8px' }}>
         <button className="btn btn-secondary" onClick={onPrev}>← Back</button>
-        <button className="btn btn-primary" onClick={onNext}>Build Prescription →</button>
+        <button className="btn btn-primary" onClick={onNext}>Continue to Treatment →</button>
         <button className="btn btn-secondary" onClick={() => window.print()}>🖨️ Print</button>
       </div>
     </div>
