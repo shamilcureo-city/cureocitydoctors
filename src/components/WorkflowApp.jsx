@@ -10,6 +10,7 @@ import MedicationsPanel from './MedicationsPanel';
 import LabsPanel from './LabsPanel';
 import AssessmentPanel from './AssessmentPanel';
 import PrescriptionPanel from './PrescriptionPanel';
+import Step8Panel from './Step8Panel';
 import DisclaimerBanner from './DisclaimerBanner';
 import { useEngine } from '../hooks/useEngine';
 import { logEvent } from '../utils/auditLog';
@@ -35,6 +36,8 @@ const WorkflowApp = ({ user }) => {
     allergies, addAllergy, removeAllergy, allergyConflicts,
     structuredSymptoms, toggleStructuredSymptom,
     notes, saveNotes, resetCase,
+    getActiveConditionIds, computeCalcScore, getCalcAutofill,
+    buildSOAPText, getSuggestedICD,
   } = useEngine(user?.id ?? null);
 
   const [notesOpen, setNotesOpen] = useState(false);
@@ -47,6 +50,7 @@ const WorkflowApp = ({ user }) => {
     { id: 5, label: 'Assessment', sublabel: 'Diff Dx & ICD-10', active: false, locked: true },
     { id: 6, label: 'Treatment', sublabel: 'Rx & Protocol', active: false, locked: true },
     { id: 7, label: 'Finalize', sublabel: 'Review & Print', active: false, locked: true },
+    { id: 8, label: 'Tools', sublabel: 'Scores · SOAP · ICD', active: false, locked: true },
   ]);
 
   const handleProcessIntake = async (text) => {
@@ -257,6 +261,20 @@ const WorkflowApp = ({ user }) => {
           {activeStep === 7 && (
             <PrescriptionPanel
               engineState={engineState}
+              onNext={handleNextStep}
+              onPrev={handlePrevStep}
+            />
+          )}
+
+          {/* Step 8 — Clinical Tools (Risk Scores + SOAP Note + ICD-10) */}
+          {activeStep === 8 && (
+            <Step8Panel
+              patient={patient}
+              getActiveConditionIds={getActiveConditionIds}
+              computeCalcScore={computeCalcScore}
+              getCalcAutofill={getCalcAutofill}
+              buildSOAPText={buildSOAPText}
+              getSuggestedICD={getSuggestedICD}
               onPrev={handlePrevStep}
             />
           )}

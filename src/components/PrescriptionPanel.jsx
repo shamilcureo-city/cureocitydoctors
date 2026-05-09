@@ -1,4 +1,4 @@
-const PrescriptionPanel = ({ engineState, onPrev }) => {
+const PrescriptionPanel = ({ engineState, onNext, onPrev }) => {
   const diffs = engineState.differentials || { t1: [], t2: [], t3: [] };
   const topDx = [...diffs.t3, ...diffs.t1][0];
   const drugs = engineState.drugs || [];
@@ -76,6 +76,9 @@ const PrescriptionPanel = ({ engineState, onPrev }) => {
       <div className="btn-row" style={{ marginTop: '8px' }}>
         <button className="btn btn-secondary" onClick={onPrev}>← Back to Treatment</button>
         <button className="btn btn-primary" disabled>📧 Generate Referral Letter</button>
+        {onNext && (
+          <button className="btn btn-secondary" onClick={onNext}>Open Clinical Tools →</button>
+        )}
       </div>
     </div>
   );

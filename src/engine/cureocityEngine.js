@@ -8299,6 +8299,9 @@ export { CLINICAL_NOTES };
 // Slice 4 — Live panel data: follow-up questions + KB id mapping
 export { FOLLOW_UP_QUESTIONS_DB, KB_ID_MAP, LAB_DEFS, getLabStatus };
 
+// Slice 5 — Calculators, ICD-10, SOAP
+export { CALCULATORS, ICD10_DB, COND_ICD_MAP };
+
 export const EngineCore = {
   getScore: () => S.scored,
   getDifferential: () => S.differential,
@@ -8398,6 +8401,140 @@ export const EngineCore = {
     Object.keys(S_VITALS).forEach((k) => delete S_VITALS[k]);
     S_ALLERGIES.length = 0;
     Object.keys(CLINICAL_NOTES).forEach((k) => { CLINICAL_NOTES[k] = ''; });
+  },
+
+  // ── Slice 5 — Calculators / SOAP / ICD ──────────────────────
+  // Active condition IDs from current differential (T3+T1) for "relevant" calc detection
+  getActiveConditionIds: () => {
+    const t3 = S.differential?.t3 || S.differential?.must_not_miss || [];
+    const t1 = S.differential?.t1 || S.differential?.most_likely   || [];
+    return new Set([...t3, ...t1].map(d => d.id || d.cond?.id).filter(Boolean));
+  },
+
+  // Compute a calculator score from a values dict (mirrors v4 computeCalcScore)
+  computeCalcScore: (calc, vals) => {
+    if (!calc) return 0;
+    if (calc.score_fn) return calc.score_fn(vals || {});
+    let total = 0;
+    for (const f of (calc.fields || [])) {
+      const v = (vals || {})[f.id];
+      if (f.type === 'check') { if (v == 1 || v === true) total += (f.points || 1); }
+      else if (f.type === 'select') { total += parseInt(v) || 0; }
+    }
+    return total;
+  },
+
+  // Run a calculator's autofill against current S to seed defaults
+  getCalcAutofill: (calc) => {
+    if (!calc?.autofill) return {};
+    try { return calc.autofill(S.patient || {}) || {}; } catch { return {}; }
+  },
+
+  // Pure SOAP builder — returns { subjective, objective, assessment, plan, meta }
+  // No DOM, no engine mutation. React renders into editable textareas.
+  buildSOAPText: () => {
+    if (!S.corpus) {
+      return {
+        empty: true,
+        subjective: '', objective: '', assessment: '', plan: '',
+        meta: '',
+      };
+    }
+    const pt = S.patient || {};
+    const today = new Date().toLocaleDateString('en-IN', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+    const filled = (S.gaps || []).filter(g => g.value);
+
+    // Subjective
+    const symptoms = Object.keys(S.activeSystems || {})
+      .map(id => (SYSTEMS[id]?.activators || []).filter(a => termPresent(S.corpus, a)))
+      .flat().filter(Boolean);
+    const uniqueSymptoms = [...new Set(symptoms)];
+    const duration = filled.find(g => g.key === 'duration')?.value || '';
+    const onset    = filled.find(g => g.key === 'onset')?.value || '';
+    const historyItems = filled.filter(g => !['duration','onset'].includes(g.key))
+      .map(g => `${g.label}: ${g.value}`).join('. ');
+
+    let subjective = `Chief complaint: ${(S.rawInput || '—').slice(0, 200)}\n\n`;
+    subjective += `The patient presents with ${uniqueSymptoms.slice(0, 5).join(', ') || 'symptoms as documented'}`;
+    if (duration) subjective += ` for ${duration}`;
+    if (onset)    subjective += `. Onset: ${onset}`;
+    subjective += '.\n\n';
+    if (historyItems) subjective += `History: ${historyItems}.\n\n`;
+    if (pt.comorbid)  subjective += `Background: ${pt.comorbid}.\n`;
+    if (CLINICAL_NOTES.intake) subjective += `\nAdditional notes: ${CLINICAL_NOTES.intake}`;
+
+    // Objective
+    let objective = '';
+    const examEntries = Object.entries(S.examFindings || {}).flatMap(([sysId, findings]) =>
+      Object.entries(findings || {}).filter(([,v]) => v).map(([k, v]) => `${String(k).replace(/_/g,' ').replace(sysId+' ','')}: ${v}`)
+    );
+    if (examEntries.length) objective += `Examination:\n${examEntries.join('\n')}\n\n`;
+    const labEntries = Object.entries(S.labs || {}).filter(([,v]) => v).map(([k, v]) => {
+      const def = Object.values(LAB_DEFS).flat().find(d => d.key === k);
+      return `${def?.name || k}: ${v} ${def?.unit || ''}`;
+    });
+    if (labEntries.length) objective += `Investigations:\n${labEntries.join('\n')}\n\n`;
+    if (!objective) objective = 'Examination and investigations pending documentation.\n';
+    if (CLINICAL_NOTES.history) objective += `\nClinical notes: ${CLINICAL_NOTES.history}`;
+
+    // Assessment
+    const diff = S.differential || {};
+    const mnm = diff.must_not_miss || diff.t3 || [];
+    const ml  = diff.most_likely   || diff.t1 || [];
+    let assessment = '';
+    if (mnm.length) assessment += `Must not miss: ${mnm.map(c => c.name || c.cond?.name).filter(Boolean).join('; ')}.\n\n`;
+    if (ml.length)  assessment += `Most likely diagnoses:\n${ml.map((c,i) => `${i+1}. ${c.name || c.cond?.name} — ${(c.reason || '').slice(0,80)}`).filter(Boolean).join('\n')}\n\n`;
+    assessment += `Diagnostic certainty: ${S.certainty || 0}%.\n`;
+    if ((S.redFlags || []).length) assessment += `\nRed flags identified: ${S.redFlags.map(f => (f.msg || '').slice(0,60)).join('; ')}.\n`;
+    if (CLINICAL_NOTES.impression) assessment += `\nClinical impression: ${CLINICAL_NOTES.impression}`;
+
+    // Plan
+    let plan = '';
+    const urgent  = (S.nextSteps || []).filter(s => s.urgency === 'urgent');
+    const routine = (S.nextSteps || []).filter(s => s.urgency !== 'urgent');
+    if (urgent.length)  plan += `Immediate:\n${urgent.map((s,i) => `${i+1}. ${s.action}`).join('\n')}\n\n`;
+    if (routine.length) plan += `Investigations/Follow-up:\n${routine.slice(0,4).map((s,i) => `${i+1}. ${s.action}`).join('\n')}\n\n`;
+    if ((S.drugs || []).length) {
+      plan += `Prescription:\n${S.drugs.map((d,i) => `${i+1}. ${d.name}${d.dose ? ' ' + d.dose : ''}${d.duration ? ' for ' + d.duration : ''}`).join('\n')}\n\n`;
+    }
+    const topCond = ml[0] || mnm[0];
+    if (topCond) {
+      const kb = lookupKB(topCond.id || topCond.cond?.id || '');
+      if (kb?.referral?.length) plan += `Referral consideration: ${kb.referral[0]}\n`;
+    }
+    plan += `\nFollow up in ${(S.redFlags || []).length > 0 ? '3-5' : '14'} days or sooner if symptoms worsen.`;
+
+    const meta = `Generated: ${today} · ${pt.age || '?'}y ${pt.gender === 'F' ? 'Female' : pt.gender === 'M' ? 'Male' : ''} · Certainty: ${S.certainty || 0}%`;
+
+    return {
+      empty: false,
+      subjective: subjective.trim(),
+      objective:  objective.trim(),
+      assessment: assessment.trim(),
+      plan:       plan.trim(),
+      meta,
+    };
+  },
+
+  // ICD-10 suggestions from current differential (top 5 conditions, top 2 codes each)
+  getSuggestedICD: () => {
+    const allConds = [
+      ...(S.differential?.must_not_miss || S.differential?.t3 || []),
+      ...(S.differential?.most_likely   || S.differential?.t1 || []),
+    ];
+    const seen = new Set();
+    const out = [];
+    for (const item of allConds.slice(0, 5)) {
+      const condId = item.id || item.cond?.id;
+      const codes  = COND_ICD_MAP[condId] || [];
+      for (const code of codes.slice(0, 2)) {
+        if (!seen.has(code)) {
+          const entry = ICD10_DB.find(e => e.code === code);
+          if (entry) { out.push({ ...entry, condName: item.name || item.cond?.name }); seen.add(code); }
+        }
+      }
+    }
+    return out;
   },
 
   // Allergy conflict checker — pure function, no DOM

@@ -344,5 +344,11 @@ export function useEngine(doctorId = null) {
     structuredSymptoms, toggleStructuredSymptom,
     // Slice 3
     notes, saveNotes, resetCase,
+    // Slice 5 — Calculators / SOAP / ICD helpers (read-only; panels keep local state)
+    getActiveConditionIds: EngineCore.getActiveConditionIds,
+    computeCalcScore: EngineCore.computeCalcScore,
+    getCalcAutofill: EngineCore.getCalcAutofill,
+    buildSOAPText: EngineCore.buildSOAPText,
+    getSuggestedICD: EngineCore.getSuggestedICD,
   };
 }
