@@ -300,6 +300,27 @@ export function useEngine(doctorId = null) {
     record('symptom.toggle', { sym, on: next.includes(sym) });
   }, [record]);
 
+  // ── Slice 3: clinical notes + case reset ──────────────────────
+  const [notes, setNotesState] = useState(() => EngineCore.getNotes());
+  const saveNotes = useCallback((next) => {
+    const merged = EngineCore.saveNotes(next);
+    setNotesState(merged);
+    record('notes.save', { keys: Object.keys(next || {}).length });
+  }, [record]);
+
+  const resetCase = useCallback(() => {
+    EngineCore.resetCase();
+    setExtraction(null);
+    setExtractionError(null);
+    setPatientState(EngineCore.getPatient());
+    setVitalsState(EngineCore.getVitals());
+    setAllergiesState(EngineCore.getAllergies());
+    setStructuredSymptomsState(EngineCore.getStructuredSymptoms());
+    setNotesState(EngineCore.getNotes());
+    syncState();
+    record('case.reset', {});
+  }, [record]);
+
   return {
     engineState,
     extraction,
@@ -319,5 +340,7 @@ export function useEngine(doctorId = null) {
     allergies, addAllergy: addAllergyEntry, removeAllergy: removeAllergyEntry, allergyConflicts,
     // Slice 2
     structuredSymptoms, toggleStructuredSymptom,
+    // Slice 3
+    notes, saveNotes, resetCase,
   };
 }

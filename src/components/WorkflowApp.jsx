@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Header from './Header';
 import Sidebar from './Sidebar';
+import NotesModal from './NotesModal';
 import LivePanel from './LivePanel';
 import IntakePanel from './IntakePanel';
 import SymptomBuilder from './SymptomBuilder';
@@ -33,7 +34,10 @@ const WorkflowApp = ({ user }) => {
     vitals, setVital,
     allergies, addAllergy, removeAllergy, allergyConflicts,
     structuredSymptoms, toggleStructuredSymptom,
+    notes, saveNotes, resetCase,
   } = useEngine(user?.id ?? null);
+
+  const [notesOpen, setNotesOpen] = useState(false);
 
   const [steps, setSteps] = useState([
     { id: 1, label: 'Intake', sublabel: 'Complaint + History', active: true, locked: false },
@@ -83,12 +87,51 @@ const WorkflowApp = ({ user }) => {
     window.location.reload();
   };
 
+  const handleNewCase = () => {
+    if (engineState.rawInput && !window.confirm('Start a new case? Current data will be cleared.')) return;
+    resetCase();
+    clearActiveCase();
+    setSteps((prev) => prev.map((s) => ({
+      ...s,
+      active: s.id === 1,
+      locked: s.id !== 1,
+    })));
+    setActiveStep(1);
+    logEvent('workflow.newCase', {});
+  };
+
+  // Cmd/Ctrl+N opens the Notes modal (matches v4 shortcut)
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'n') {
+        e.preventDefault();
+        setNotesOpen(true);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+
   const sysColor = { cv:'var(--cv)',rs:'var(--rs)',en:'var(--en)',nr:'var(--nr)',gi:'var(--gi)',hm:'var(--hm)',ms:'var(--ms)',ps:'var(--ps)',universal:'var(--ink3)' };
 
   return (
     <div className="app">
       <DisclaimerBanner />
-      <Header user={user} onSignOut={handleSignOut} />
+      <Header
+        user={user}
+        onSignOut={handleSignOut}
+        patient={patient}
+        steps={steps}
+        activeStep={activeStep}
+        onOpenNotes={() => setNotesOpen(true)}
+        onNewCase={handleNewCase}
+      />
+      <NotesModal
+        open={notesOpen}
+        notes={notes}
+        onSave={saveNotes}
+        onClose={() => setNotesOpen(false)}
+      />
       <div className="app-body">
         <Sidebar steps={steps} onStepClick={handleStepClick} />
         <main>

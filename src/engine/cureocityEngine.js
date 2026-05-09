@@ -8293,6 +8293,9 @@ export {
 // Slice 2 — Symptom Builder data + helpers
 export { SYMPTOM_BUILDER_GROUPS };
 
+// Slice 3 — Clinical notes + case reset
+export { CLINICAL_NOTES };
+
 export const EngineCore = {
   getScore: () => S.scored,
   getDifferential: () => S.differential,
@@ -8357,6 +8360,41 @@ export const EngineCore = {
     else S.structuredSymptoms.push(sym);
     if (typeof rebuildCorpusAndRescore === 'function') rebuildCorpusAndRescore();
     return [...S.structuredSymptoms];
+  },
+
+  // Slice 3 — Clinical notes
+  getNotes: () => ({ ...CLINICAL_NOTES }),
+  saveNotes: (next) => {
+    Object.assign(CLINICAL_NOTES, next || {});
+    return { ...CLINICAL_NOTES };
+  },
+
+  // Slice 3 — full case reset (no DOM, no confirm; React owns the prompt)
+  resetCase: () => {
+    S.step = 1;
+    S.unlockedSteps = new Set([1]);
+    S.patient = { age: null, gender: '', comorbid: '' };
+    S.rawInput = '';
+    S.corpus = '';
+    S.normalizations = [];
+    S.activeSystems = {};
+    S.redFlags = [];
+    S.scored = [];
+    S.gaps = [];
+    S.examFindings = {};
+    S.activeExamFindings = {};
+    S.drugs = [];
+    S.interactions = [];
+    S.labs = {};
+    S.labAlerts = [];
+    S.differential = { t1: [], t2: [], t3: [] };
+    S.nextSteps = [];
+    S.certainty = 0;
+    S.certaintyNote = '';
+    S.structuredSymptoms = [];
+    Object.keys(S_VITALS).forEach((k) => delete S_VITALS[k]);
+    S_ALLERGIES.length = 0;
+    Object.keys(CLINICAL_NOTES).forEach((k) => { CLINICAL_NOTES[k] = ''; });
   },
 
   // Allergy conflict checker — pure function, no DOM
