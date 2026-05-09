@@ -28,6 +28,9 @@ const WorkflowApp = ({ user }) => {
     handleUpdateLab,
     handleAddDrug,
     handleRemoveDrug,
+    patient, setPatientField,
+    vitals, setVital,
+    allergies, addAllergy, removeAllergy, allergyConflicts,
   } = useEngine(user?.id ?? null);
 
   const [steps, setSteps] = useState([
@@ -93,6 +96,14 @@ const WorkflowApp = ({ user }) => {
               isProcessing={isProcessing}
               extraction={extraction}
               extractionError={extractionError}
+              patient={patient}
+              onPatientChange={setPatientField}
+              vitals={vitals}
+              onVitalChange={setVital}
+              allergies={allergies}
+              allergyConflicts={allergyConflicts}
+              onAddAllergy={addAllergy}
+              onRemoveAllergy={removeAllergy}
             />
           )}
 

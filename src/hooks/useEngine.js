@@ -56,6 +56,13 @@ export function useEngine(doctorId = null) {
   const [extraction, setExtraction] = useState(null);
   const [extractionError, setExtractionError] = useState(null);
 
+  // Slice 1 — patient/vitals/allergies state. Engine still owns the truth;
+  // React mirrors it. Mutations from outside React (Gemini extraction) push
+  // back into these setters explicitly.
+  const [patient, setPatientState]   = useState(() => EngineCore.getPatient());
+  const [vitals,  setVitalsState]    = useState(() => EngineCore.getVitals());
+  const [allergies, setAllergiesState] = useState(() => EngineCore.getAllergies());
+
   const syncState = () => {
     setEngineState({
       activeSystems: { ...S.activeSystems },
@@ -91,9 +98,17 @@ export function useEngine(doctorId = null) {
 
         // Hand structured demographics + comorbidities to the engine state so
         // age/sex-aware scoring (e.g. ACS in a 62yo M) and pregnancy filters work.
-        if (extracted.demographics?.age != null) S.patient.age = extracted.demographics.age;
-        if (extracted.demographics?.sex) S.patient.gender = extracted.demographics.sex;
-        S.patient.comorbid = (extracted.comorbidities || []).join(', ');
+        // Treat Gemini as a suggestion: only overwrite when it has a confident
+        // value, never clobber user-entered values with empty/unknown.
+        const exAge = extracted.demographics?.age;
+        const exSex = extracted.demographics?.sex;
+        const exCm  = extracted.comorbidities;
+        if (typeof exAge === 'number' && exAge > 0) S.patient.age = exAge;
+        if (exSex === 'M' || exSex === 'F') S.patient.gender = exSex;
+        if (Array.isArray(exCm) && exCm.length > 0) S.patient.comorbid = exCm.join(', ');
+        // Mirror into React state so the patient details form reflects what
+        // Gemini extracted. (Avoids the antipattern of syncing via useEffect.)
+        setPatientState({ ...S.patient });
 
         const corpus = corpusFromExtraction(extracted);
         EngineCore.setRawInput(corpus);
@@ -242,6 +257,38 @@ export function useEngine(doctorId = null) {
     }
   }, [record]);
 
+  // ── Slice 1: setters that mirror engine mutations into React state ──
+  const setPatientField = useCallback((field, value) => {
+    EngineCore.setPatient({ [field]: value });
+    setPatientState(EngineCore.getPatient());
+    record('patient.update', { field, hasValue: !!value });
+  }, [record]);
+
+  const setVital = useCallback((key, value) => {
+    EngineCore.setVital(key, value);
+    setVitalsState({ ...EngineCore.getVitals() });
+    record('vital.update', { key, hasValue: !!value });
+  }, [record]);
+
+  const clearVital = useCallback((key) => {
+    EngineCore.clearVital(key);
+    setVitalsState({ ...EngineCore.getVitals() });
+  }, []);
+
+  const addAllergyEntry = useCallback((allergen, reaction, severity) => {
+    EngineCore.addAllergy(allergen, reaction, severity);
+    setAllergiesState([...EngineCore.getAllergies()]);
+    record('allergy.add', { allergen, severity });
+  }, [record]);
+
+  const removeAllergyEntry = useCallback((idx) => {
+    EngineCore.removeAllergy(idx);
+    setAllergiesState([...EngineCore.getAllergies()]);
+    record('allergy.remove', { idx });
+  }, [record]);
+
+  const allergyConflicts = EngineCore.getAllergyConflicts();
+
   return {
     engineState,
     extraction,
@@ -255,5 +302,9 @@ export function useEngine(doctorId = null) {
     handleRemoveDrug,
     getLabDefs: EngineCore.getLabDefs,
     getLabStatus: EngineCore.getLabStatus,
+    // Slice 1
+    patient, setPatientField,
+    vitals, setVital, clearVital,
+    allergies, addAllergy: addAllergyEntry, removeAllergy: removeAllergyEntry, allergyConflicts,
   };
 }

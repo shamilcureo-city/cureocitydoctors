@@ -8281,6 +8281,15 @@ function resetAIPanel() {
 
 // ==== EXPORTS FOR REACT ====
 export { S, processIntake, updateLab, kbeScoreAll, kbeScoreCondition, CLINICAL_KB };
+
+// Slice 1 — Patient/Vitals/Allergies/Demos data + helpers
+export {
+  VITALS_DEFS, S_VITALS, isAbnormalVital, getVitalsSummary,
+  S_ALLERGIES, ALLERGY_CROSS_REACTIVITY,
+  DEMOS,
+  termPresent,
+};
+
 export const EngineCore = {
   getScore: () => S.scored,
   getDifferential: () => S.differential,
@@ -8303,4 +8312,62 @@ export const EngineCore = {
   buildAssessment: () => { if (typeof buildAssessment === 'function') buildAssessment(); },
   getScored: () => S.scored,
   getNextSteps: () => S.nextSteps,
+
+  // Slice 1 — patient field setters that mutate engine state directly.
+  // Triggers re-score on next analyze; does NOT touch DOM.
+  setPatient: ({ age, gender, comorbid }) => {
+    if (age !== undefined)      S.patient.age      = age === '' || age == null ? null : parseInt(age) || null;
+    if (gender !== undefined)   S.patient.gender   = gender || '';
+    if (comorbid !== undefined) S.patient.comorbid = comorbid || '';
+  },
+  getPatient: () => ({ ...S.patient }),
+
+  // Vitals — mutate S_VITALS + S.examFindings without DOM render
+  setVital: (key, value) => {
+    S_VITALS[key] = value;
+    if (!S.examFindings.cv) S.examFindings.cv = {};
+    if (key === 'hr')   S.examFindings.cv['cv_heart_rate__bpm_'] = value;
+    if (key === 'sbp')  S.examFindings.cv['cv_blood_pressure__mmhg_'] = value + (S_VITALS.dbp ? '/' + S_VITALS.dbp : '');
+    if (key === 'spo2') S.examFindings.cv['cv_spo2___'] = value;
+    if (key === 'rr') { if (!S.examFindings.rs) S.examFindings.rs = {}; }
+  },
+  getVitals: () => ({ ...S_VITALS }),
+  clearVital: (key) => { delete S_VITALS[key]; },
+
+  // Allergies — same pattern
+  addAllergy: (allergen, reaction, severity) => {
+    if (!allergen) return;
+    const idx = S_ALLERGIES.findIndex(a => a.allergen.toLowerCase() === allergen.toLowerCase());
+    const entry = { allergen: allergen.trim(), reaction: reaction || 'Unknown reaction', severity: severity || 'unknown' };
+    if (idx >= 0) S_ALLERGIES[idx] = entry; else S_ALLERGIES.push(entry);
+  },
+  removeAllergy: (idx) => { S_ALLERGIES.splice(idx, 1); },
+  getAllergies: () => [...S_ALLERGIES],
+
+  // Allergy conflict checker — pure function, no DOM
+  getAllergyConflicts: () => {
+    const conflicts = [];
+    for (const allergy of S_ALLERGIES) {
+      const aLow = allergy.allergen.toLowerCase();
+      for (const drug of S.drugs) {
+        const dLow = drug.name.toLowerCase();
+        if (dLow.includes(aLow) || aLow.includes(dLow)) {
+          conflicts.push({ type:'direct', drug: drug.name, allergen: allergy.allergen, severity:'critical',
+            msg:`${drug.name} conflicts with documented ${allergy.allergen} allergy (${allergy.reaction}).` });
+        }
+      }
+      for (const [cls, data] of Object.entries(ALLERGY_CROSS_REACTIVITY)) {
+        if (aLow.includes(cls) || data.cross.some(c => aLow.includes(c))) {
+          for (const drug of S.drugs) {
+            const dLow = drug.name.toLowerCase();
+            if (data.cross.some(c => dLow.includes(c))) {
+              conflicts.push({ type:'cross', drug: drug.name, allergen: allergy.allergen, severity:'warning',
+                msg:`${drug.name}: cross-reactivity with ${allergy.allergen} allergy. ${data.note}` });
+            }
+          }
+        }
+      }
+    }
+    return conflicts;
+  },
 };

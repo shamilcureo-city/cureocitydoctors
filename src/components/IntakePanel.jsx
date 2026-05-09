@@ -1,5 +1,9 @@
 import { useState } from 'react';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
+import { DEMOS } from '../engine/cureocityEngine';
+import PatientDetailsCard from './PatientDetailsCard';
+import VitalsCard from './VitalsCard';
+import AllergiesCard from './AllergiesCard';
 
 function formatDuration(ms) {
   const totalSec = Math.floor(ms / 1000);
@@ -8,7 +12,18 @@ function formatDuration(ms) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-const IntakePanel = ({ onProcess, isProcessing, extraction, extractionError }) => {
+const DEMO_BUTTONS = [
+  { key: 'breathing', label: 'Breathing + chest tightness', emoji: '🫁' },
+  { key: 'pcos',      label: 'Period irregular + weight gain', emoji: '⚕️' },
+  { key: 'acs',       label: 'Chest pain + sweating',         emoji: '❤️' },
+];
+
+const IntakePanel = ({
+  onProcess, isProcessing, extraction, extractionError,
+  patient, onPatientChange,
+  vitals, onVitalChange,
+  allergies, allergyConflicts, onAddAllergy, onRemoveAllergy,
+}) => {
   const [text, setText] = useState('');
   const {
     isRecording,
@@ -39,12 +54,31 @@ const IntakePanel = ({ onProcess, isProcessing, extraction, extractionError }) =
 
   const canAnalyze = !isProcessing && !isRecording && (text.trim() || audioBlob);
 
+  const handleLoadDemo = (key) => {
+    const d = DEMOS[key];
+    if (!d) return;
+    onPatientChange('age', d.age);
+    onPatientChange('gender', d.gender);
+    onPatientChange('comorbid', d.comorbid);
+    setText(d.text);
+    clearRecording();
+  };
+
   return (
     <div className="step-panel active" id="step-1">
       <div className="mod-header">
         <h2 className="mod-title">Intake & Chief Complaint</h2>
         <div className="mod-desc">Record the patient's primary concern and current history. The Clinical AI will process this in real-time.</div>
       </div>
+
+      <PatientDetailsCard patient={patient} onChange={onPatientChange} />
+      <VitalsCard vitals={vitals} onChange={onVitalChange} />
+      <AllergiesCard
+        allergies={allergies}
+        conflicts={allergyConflicts}
+        onAdd={onAddAllergy}
+        onRemove={onRemoveAllergy}
+      />
 
       <div className="card">
         <div className="card-head">
@@ -64,6 +98,28 @@ const IntakePanel = ({ onProcess, isProcessing, extraction, extractionError }) =
               onChange={(e) => setText(e.target.value)}
               disabled={isRecording}
             ></textarea>
+          </div>
+
+          {/* Demo case loaders */}
+          <div style={{
+            display: 'flex', flexWrap: 'wrap', gap: '6px',
+            marginBottom: '12px', alignItems: 'center',
+          }}>
+            <span style={{
+              fontSize: '10px', fontWeight: 600, color: 'var(--ink4)',
+              textTransform: 'uppercase', letterSpacing: '.5px', marginRight: '4px',
+            }}>Demo cases:</span>
+            {DEMO_BUTTONS.map((d) => (
+              <button
+                key={d.key}
+                className="btn btn-xs btn-secondary"
+                onClick={() => handleLoadDemo(d.key)}
+                disabled={isProcessing || isRecording}
+                title={DEMOS[d.key]?.text}
+              >
+                {d.emoji} {d.label}
+              </button>
+            ))}
           </div>
 
           {voiceSupported && (
