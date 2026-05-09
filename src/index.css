@@ -806,7 +806,7 @@ textarea::placeholder,input::placeholder{color:var(--ink4);font-size:12px}
 .report-section{margin-bottom:18px;padding-bottom:14px;border-bottom:1.5px solid var(--border)}
 .report-section:last-child{border-bottom:none}
 .report-section-title{font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink4);margin-bottom:8px}
-@media print{.app-header,.step-nav,.live-panel,.btn-row,.assess-tabs,.notif{display:none!important}main{padding:0!important}.step-panel{display:none!important}#step-6,#step-7{display:block!important}.rx-final{border:none}}
+@media print{.app-header,.step-nav,.live-panel,.btn-row,.assess-tabs,.notif,.disclaimer-banner,.mod-header,.rx-builder-tools,.rx-print-hide{display:none!important}main{padding:0!important}.app-body{display:block!important}.rx-final{border:none}}
 
 /* ── AI REASONING ENGINE STYLES ── */
 @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.85)}}

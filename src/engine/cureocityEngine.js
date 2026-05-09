@@ -8302,6 +8302,12 @@ export { FOLLOW_UP_QUESTIONS_DB, KB_ID_MAP, LAB_DEFS, getLabStatus };
 // Slice 5 — Calculators, ICD-10, SOAP
 export { CALCULATORS, ICD10_DB, COND_ICD_MAP };
 
+// Slice 7 — Prescription Builder (Indian timing, cost estimate, specialist map)
+export {
+  mapToIndianTiming, getFormPrefix, getCostEstimate, INDIA_COST_DB,
+  SPECIALIST_MAP, checkInteractions,
+};
+
 export const EngineCore = {
   getScore: () => S.scored,
   getDifferential: () => S.differential,
@@ -8596,6 +8602,163 @@ export const EngineCore = {
       nextSteps: [...(S.nextSteps || [])],
       notes: { ...CLINICAL_NOTES },
     };
+  },
+
+  // ── Slice 7 — Prescription Builder ──────────────────────────
+  // Returns drug-selector tree: top 4 differential conditions, each with
+  // their KB treatment lines, each with drugs flattened with stable IDs.
+  getRxDrugOptions: () => {
+    const allConds = [
+      ...(S.differential?.t3 || []),
+      ...(S.differential?.t1 || []),
+      ...(S.differential?.t2 || []),
+    ].slice(0, 4);
+    const out = [];
+    for (const cond of allConds) {
+      const condId = cond.id || cond.cond?.id || '';
+      const kb = lookupKB(condId);
+      if (!kb || !kb.treatment) continue;
+      const lines = [];
+      for (const [lineKey, line] of Object.entries(kb.treatment)) {
+        const drugs = (line.drugs || []).map((d, i) => ({
+          drugId: `${condId}_${lineKey}_${i}`,
+          drug: d,
+          condId,
+          condName: kb.name,
+          lineKey,
+          lineLabel: line.label,
+        }));
+        lines.push({ lineKey, lineLabel: line.label, drugs });
+      }
+      out.push({ condId, condName: kb.name, kbSystems: kb.systems, sources: kb.gl_sources || [], lines });
+    }
+    return out;
+  },
+
+  // Safety check for a list of selected drug entries (the shape the panel
+  // tracks): combines the existing checkInteractions() with patient-specific
+  // contraindications inferred from the corpus (renal, pregnancy, asthma+β-blocker).
+  getRxSafetyAlerts: (selectedDrugs = []) => {
+    const fakeDrugs = selectedDrugs.map(s => ({ name: s.drug?.generic || s.drug?.name || '' })).filter(d => d.name);
+    const interactions = checkInteractions(fakeDrugs);
+    // Contraindications
+    const contraAlerts = [];
+    const corpus = (S.corpus || '').toLowerCase();
+    for (const sel of selectedDrugs) {
+      const drug = sel.drug || {};
+      if (!drug.contra) continue;
+      const c = String(drug.contra).toLowerCase();
+      if ((c.includes('renal') || c.includes('egfr') || c.includes('ckd')) && (corpus.includes('chronic kidney disease') || corpus.includes('ckd'))) {
+        contraAlerts.push({ drug: drug.generic, severity: 'danger', msg: `Renal contraindication: ${drug.contra.slice(0, 120)}` });
+      }
+      if (c.includes('pregnancy') && S.patient?.gender === 'F' && corpus.includes('pregnant')) {
+        contraAlerts.push({ drug: drug.generic, severity: 'danger', msg: `Pregnancy contraindication: ${drug.contra.slice(0, 120)}` });
+      }
+      if (c.includes('asthma') && corpus.includes('asthma') && (drug.generic || '').toLowerCase().includes('beta')) {
+        contraAlerts.push({ drug: drug.generic, severity: 'danger', msg: 'Asthma contraindication: beta-blockers can precipitate bronchospasm.' });
+      }
+    }
+    return { interactions, contraAlerts };
+  },
+
+  // Builds advice items + follow-up days for the printable prescription.
+  buildRxAdvice: (selectedDrugs = []) => {
+    const items = [];
+    const seen = new Set();
+    for (const sel of selectedDrugs) {
+      const kb = lookupKB(sel.condId);
+      if (!kb) continue;
+      if (kb.india_context?.dietary && !seen.has('diet')) {
+        items.push(kb.india_context.dietary);
+        seen.add('diet');
+      }
+      if (sel.drug?.monitoring) {
+        const first = String(sel.drug.monitoring).split('.')[0].trim();
+        if (first) items.push(`Monitor: ${first}.`);
+      }
+      if (items.length >= 4) break;
+    }
+    const followupDays = (S.redFlags || []).length > 0 ? '3-5' : '14';
+    return { items, followupDays, urgent: (S.redFlags || []).length > 0 };
+  },
+
+  // Returns a referral letter as plain text + metadata. React inserts into UI.
+  buildReferralLetter: ({ selectedDrugs = [], patientName = '', doctorName = 'Dr.', clinicName = 'Cureocity Clinical' } = {}) => {
+    const pt = S.patient || {};
+    const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+    const primarySys = Object.keys(S.activeSystems || {})[0];
+    const specialist = SPECIALIST_MAP[primarySys] || { name: 'Specialist', urgency_flag: false };
+    const isUrgent = (S.redFlags || []).length > 0 || specialist.urgency_flag;
+
+    const filled = (S.gaps || []).filter(g => g.value);
+    const historyItems = filled.map(g => `${g.label}: ${g.value}`).join('\n');
+    const examItems = Object.entries(S.examFindings || {})
+      .flatMap(([sysId, f]) => Object.entries(f || {}).filter(([, v]) => v).map(([k, v]) => `${String(k).replace(/_/g, ' ')}: ${v}`))
+      .join('\n');
+    const drugsText = (S.drugs || []).map(d => `${d.name} ${d.dose || ''}`).join(', ') || 'None documented';
+    const labText = (S.labAlerts || []).map(a => `${a.name}: ${a.value} ${a.unit || ''} (${a.status})`).join('\n') || 'No abnormalities noted';
+    const diffList = [...(S.differential?.t3 || []), ...(S.differential?.t1 || [])];
+    const diffText = diffList.map((c, i) => `${i === 0 ? 'Primary working diagnosis' : 'Also consider'}: ${c.name || c.cond?.name}`).join('\n');
+    const rxText = selectedDrugs.length
+      ? selectedDrugs.map(s => `${s.drug.generic} ${s.drug.dose || ''} ${s.drug.freq || ''} for ${s.drug.duration || ''}`).join('\n')
+      : 'No prescription generated yet';
+    const vitalsText = (typeof getVitalsSummary === 'function' ? getVitalsSummary() : [])
+      .map(v => `${v.label}: ${v.value} ${v.unit || ''}${v.status !== 'normal' ? ' [' + String(v.status).toUpperCase() + ']' : ''}`)
+      .join('\n') || 'Not recorded';
+    const impression = CLINICAL_NOTES.impression || '[Add clinical impression in Notes panel]';
+    const ptDemo = `${pt.age || '?'}y ${pt.gender === 'F' ? 'Female' : pt.gender === 'M' ? 'Male' : 'Patient'}`;
+
+    const text = `${isUrgent ? 'URGENT REFERRAL' : 'REFERRAL LETTER'}
+
+Date: ${today}
+To: The ${specialist.name}
+From: ${doctorName || 'Dr. [Name]'}
+Re: ${ptDemo}${patientName ? ' — ' + patientName : ''}
+
+${isUrgent ? '*** URGENT — Please review at the earliest opportunity ***\n\n' : ''}Dear Colleague,
+
+Thank you for seeing this patient. I am referring for specialist assessment and management of the following:
+
+PRIMARY CONCERN
+${diffText || 'See below for differential diagnosis'}
+
+PRESENTING COMPLAINT
+${S.rawInput || '[Not documented]'}
+
+CLINICAL HISTORY
+${historyItems || '[History not yet documented]'}
+
+VITAL SIGNS
+${vitalsText}
+
+EXAMINATION
+${examItems || '[Examination not yet documented]'}
+
+INVESTIGATIONS
+${labText}
+
+CURRENT MEDICATIONS
+${drugsText}
+
+${(S.interactions || []).length ? `DRUG INTERACTIONS NOTED\n${S.interactions.map(i => `• ${(i.matchedDrugs || []).join(' + ')} — ${i.desc}`).join('\n')}\n\n` : ''}CURRENT TREATMENT INITIATED
+${rxText}
+
+CLINICAL IMPRESSION
+${impression}
+
+${(S.redFlags || []).length ? `RED FLAGS NOTED\n${S.redFlags.map(f => `• ${f.msg}`).join('\n')}\n\n` : ''}I would appreciate your expert opinion regarding:
+1. Confirmation of diagnosis and further specialist investigation
+2. Optimisation of management
+3. Long-term follow-up recommendations
+
+Please do not hesitate to contact me if you require further information.
+
+Yours sincerely,
+
+${doctorName || 'Dr. [Name]'}
+${clinicName || 'Cureocity Clinical'}`;
+
+    return { text, specialistName: specialist.name, isUrgent };
   },
 
   // ICD-10 suggestions from current differential (top 5 conditions, top 2 codes each)

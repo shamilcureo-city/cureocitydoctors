@@ -39,6 +39,7 @@ const WorkflowApp = ({ user }) => {
     getActiveConditionIds, computeCalcScore, getCalcAutofill,
     buildSOAPText, getSuggestedICD,
     getTopKBProtocols, getFullReport,
+    getRxDrugOptions, getRxSafetyAlerts, buildRxAdvice, buildReferralLetter,
   } = useEngine(user?.id ?? null);
 
   const [notesOpen, setNotesOpen] = useState(false);
@@ -265,6 +266,11 @@ const WorkflowApp = ({ user }) => {
           {activeStep === 7 && (
             <PrescriptionPanel
               engineState={engineState}
+              patient={patient}
+              getRxDrugOptions={getRxDrugOptions}
+              getRxSafetyAlerts={getRxSafetyAlerts}
+              buildRxAdvice={buildRxAdvice}
+              buildReferralLetter={buildReferralLetter}
               onNext={handleNextStep}
               onPrev={handlePrevStep}
             />

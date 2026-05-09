@@ -353,5 +353,10 @@ export function useEngine(doctorId = null) {
     // Slice 6 — Treatment Protocols + Full Report (data-only)
     getTopKBProtocols: EngineCore.getTopKBProtocols,
     getFullReport: EngineCore.getFullReport,
+    // Slice 7 — Prescription Builder + Referral Letter
+    getRxDrugOptions: EngineCore.getRxDrugOptions,
+    getRxSafetyAlerts: EngineCore.getRxSafetyAlerts,
+    buildRxAdvice: EngineCore.buildRxAdvice,
+    buildReferralLetter: EngineCore.buildReferralLetter,
   };
 }
