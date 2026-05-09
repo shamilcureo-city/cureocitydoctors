@@ -2,8 +2,21 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { EngineCore, processIntake, updateLab as engineUpdateLab, S } from '../engine/cureocityEngine';
 import { logEvent } from '../utils/auditLog';
 import { appendCaseEvent, ensureActiveCase, getActiveCaseId } from '../lib/casePersistence';
+import { extractIntake, logAiCall, USE_GEMINI } from '../lib/aiClient';
 
 const RESCORE_DEBOUNCE_MS = 700;
+
+// Build the corpus the engine consumes from a Gemini extraction. Concatenating
+// normalized_hpi + verbatim red-flag phrases + comorbidities + meds gives the
+// regex-based detectors the strongest signal — normalized_hpi alone can lose
+// emergency phrasing the doctor used.
+function corpusFromExtraction(extracted) {
+  const parts = [extracted.normalized_hpi || ''];
+  if (extracted.red_flag_phrases?.length) parts.push(extracted.red_flag_phrases.join('. '));
+  if (extracted.comorbidities?.length) parts.push('Comorbidities: ' + extracted.comorbidities.join(', '));
+  if (extracted.medications?.length) parts.push('Current medications: ' + extracted.medications.join(', '));
+  return parts.filter(Boolean).join('\n');
+}
 
 export function useEngine(doctorId = null) {
   const [engineState, setEngineState] = useState({
@@ -40,6 +53,9 @@ export function useEngine(doctorId = null) {
     }
   }, [doctorId]);
 
+  const [extraction, setExtraction] = useState(null);
+  const [extractionError, setExtractionError] = useState(null);
+
   const syncState = () => {
     setEngineState({
       activeSystems: { ...S.activeSystems },
@@ -63,19 +79,72 @@ export function useEngine(doctorId = null) {
     });
   };
 
-  const analyzeNarrative = useCallback((text) => {
+  const analyzeNarrative = useCallback(async (text) => {
+    setExtractionError(null);
+
+    if (USE_GEMINI) {
+      try {
+        const extracted = await extractIntake(text);
+        setExtraction(extracted);
+
+        // Hand structured demographics + comorbidities to the engine state so
+        // age/sex-aware scoring (e.g. ACS in a 62yo M) and pregnancy filters work.
+        if (extracted.demographics?.age != null) S.patient.age = extracted.demographics.age;
+        if (extracted.demographics?.sex) S.patient.gender = extracted.demographics.sex;
+        S.patient.comorbid = (extracted.comorbidities || []).join(', ');
+
+        const corpus = corpusFromExtraction(extracted);
+        EngineCore.setRawInput(corpus);
+        processIntake();
+
+        record('intake.analyze', {
+          length: text.length,
+          provider: 'gemini',
+          model: extracted._meta?.model,
+          confidence: extracted.confidence,
+          tokensIn: extracted._meta?.tokensIn,
+          tokensOut: extracted._meta?.tokensOut,
+          costInr: extracted._meta?.costInr,
+          latencyMs: extracted._meta?.latencyMs,
+        });
+
+        logAiCall({
+          caseId: caseIdRef.current,
+          doctorId,
+          task: 'intake.extract',
+          meta: extracted._meta,
+        });
+
+        syncState();
+        return true;
+      } catch (err) {
+        const msg = err?.message || 'Extraction failed';
+        setExtractionError(msg);
+        record('intake.analyze.error', { provider: 'gemini', message: msg });
+        logAiCall({
+          caseId: caseIdRef.current,
+          doctorId,
+          task: 'intake.extract',
+          meta: { provider: 'gemini' },
+          error: msg,
+        });
+        // Fall through to the deterministic regex pipeline so the doctor is
+        // never blocked by an LLM outage.
+      }
+    }
+
     try {
       EngineCore.setRawInput(text);
       processIntake();
-      record('intake.analyze', { length: text.length });
+      record('intake.analyze', { length: text.length, provider: 'regex' });
       syncState();
       return true;
     } catch (err) {
-      record('intake.analyze.error', { message: err?.message });
+      record('intake.analyze.error', { provider: 'regex', message: err?.message });
       console.error('Engine failed to process narrative:', err);
       return false;
     }
-  }, [record]);
+  }, [record, doctorId]);
 
   const handleFillGap = useCallback((key, value) => {
     try {
@@ -163,6 +232,8 @@ export function useEngine(doctorId = null) {
 
   return {
     engineState,
+    extraction,
+    extractionError,
     analyzeNarrative,
     handleFillGap,
     handleToggleExamFinding,

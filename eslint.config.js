@@ -28,4 +28,12 @@ export default defineConfig([
       'no-useless-assignment': 'off',
     },
   },
+  {
+    // Node-runtime files: Vite config, dev-only middleware, Vercel serverless
+    // functions. These run on Node (Edge or otherwise), not in the browser.
+    files: ['vite.config.js', 'vite-plugin-api.js', 'api/**/*.js'],
+    languageOptions: {
+      globals: { ...globals.node },
+    },
+  },
 ])

@@ -19,6 +19,8 @@ const WorkflowApp = ({ user }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const {
     engineState,
+    extraction,
+    extractionError,
     analyzeNarrative,
     handleFillGap,
     handleToggleExamFinding,
@@ -38,11 +40,10 @@ const WorkflowApp = ({ user }) => {
     { id: 7, label: 'Finalize', sublabel: 'Review & Print', active: false, locked: true },
   ]);
 
-  const handleProcessIntake = (text) => {
+  const handleProcessIntake = async (text) => {
     setIsProcessing(true);
-    setTimeout(() => {
-      const success = analyzeNarrative(text);
-      setIsProcessing(false);
+    try {
+      const success = await analyzeNarrative(text);
       if (success) {
         setSteps(prev => prev.map(s => {
           if (s.id === 1) return { ...s, active: false, locked: false };
@@ -53,7 +54,9 @@ const WorkflowApp = ({ user }) => {
         logEvent('workflow.stepChange', { from: 1, to: 2, reason: 'intakeProcessed' });
         setActiveStep(2);
       }
-    }, 500);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   const handleStepClick = (id) => {
@@ -88,6 +91,8 @@ const WorkflowApp = ({ user }) => {
             <IntakePanel
               onProcess={handleProcessIntake}
               isProcessing={isProcessing}
+              extraction={extraction}
+              extractionError={extractionError}
             />
           )}
 
