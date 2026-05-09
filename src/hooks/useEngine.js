@@ -350,5 +350,8 @@ export function useEngine(doctorId = null) {
     getCalcAutofill: EngineCore.getCalcAutofill,
     buildSOAPText: EngineCore.buildSOAPText,
     getSuggestedICD: EngineCore.getSuggestedICD,
+    // Slice 6 — Treatment Protocols + Full Report (data-only)
+    getTopKBProtocols: EngineCore.getTopKBProtocols,
+    getFullReport: EngineCore.getFullReport,
   };
 }

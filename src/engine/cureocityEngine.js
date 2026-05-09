@@ -8516,6 +8516,88 @@ export const EngineCore = {
     };
   },
 
+  // ── Slice 6 — Treatment Protocols + Full Report data ───────
+  // Returns top 3 differential conditions with their KB entries spread for
+  // direct React rendering. No HTML — components own presentation.
+  getTopKBProtocols: () => {
+    const all = [
+      ...(S.differential?.t3 || []),
+      ...(S.differential?.t1 || []),
+      ...(S.differential?.t2 || []),
+    ].slice(0, 3);
+    return all.map(c => {
+      const kb = lookupKB(c.id || c.cond?.id || '');
+      return {
+        condId: c.id || c.cond?.id,
+        condName: c.name || c.cond?.name,
+        tier: c.tier,
+        kb,
+      };
+    }).filter(x => x.kb);
+  },
+
+  // Full report data — pure object, no markup. React renders.
+  getFullReport: () => {
+    const pt = S.patient || {};
+    const filled = (S.gaps || []).filter(g => g.value);
+    const allConds = [
+      ...(S.differential?.t3 || []),
+      ...(S.differential?.t1 || []),
+      ...(S.differential?.t2 || []),
+    ];
+
+    const examEntries = Object.entries(S.examFindings || {}).flatMap(([sysId, findings]) =>
+      Object.entries(findings || {}).filter(([, v]) => v)
+        .map(([k, v]) => ({ sysId, key: String(k).replace(/_/g, ' '), value: v }))
+    );
+
+    const labRows = Object.entries(S.labs || {}).filter(([, v]) => v).map(([k, v]) => {
+      const def = Object.values(LAB_DEFS).flat().find(d => d.key === k);
+      return {
+        key: k,
+        name: def?.name || k,
+        value: v,
+        unit: def?.unit || '',
+        ref: def?.ref ? def.ref.join(' – ') : '—',
+        status: def ? getLabStatus(v, def) : 'normal',
+      };
+    });
+
+    const activeSystemNames = Object.keys(S.activeSystems || {})
+      .map(id => SYSTEMS[id]?.name || id);
+
+    const vitalsSummary = (typeof getVitalsSummary === 'function')
+      ? getVitalsSummary()
+      : [];
+
+    return {
+      generatedAt: new Date().toLocaleString('en-IN'),
+      pt: {
+        age: pt.age ?? null,
+        gender: pt.gender || '',
+        comorbid: pt.comorbid || '',
+      },
+      rawInput: S.rawInput || '',
+      activeSystemNames,
+      certainty: S.certainty || 0,
+      redFlags: [...(S.redFlags || [])],
+      filledGaps: filled.map(g => ({ key: g.key, label: g.label, value: g.value })),
+      examEntries,
+      vitalsSummary,
+      differentialAll: allConds.map(c => ({
+        id: c.id || c.cond?.id,
+        name: c.name || c.cond?.name,
+        tier: c.tier,
+        score: c.score,
+      })),
+      drugs: [...(S.drugs || [])],
+      interactions: [...(S.interactions || [])],
+      labRows,
+      nextSteps: [...(S.nextSteps || [])],
+      notes: { ...CLINICAL_NOTES },
+    };
+  },
+
   // ICD-10 suggestions from current differential (top 5 conditions, top 2 codes each)
   getSuggestedICD: () => {
     const allConds = [

@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import TreatmentTab from './TreatmentTab';
+import FullReportTab from './FullReportTab';
 
-const AssessmentPanel = ({ engineState, onNext, onPrev }) => {
+const AssessmentPanel = ({ engineState, getTopKBProtocols, getFullReport, onNext, onPrev }) => {
   const [activeTab, setActiveTab] = useState('summary');
 
   const diffs = engineState.differentials || { t1: [], t2: [], t3: [] };
@@ -8,6 +10,15 @@ const AssessmentPanel = ({ engineState, onNext, onPrev }) => {
   const nextSteps = engineState.nextSteps || [];
 
   const allDiffs = [...diffs.t3, ...diffs.t1, ...diffs.t2];
+
+  // Snapshot for AI tab data preview (no API call yet — slice 6b will wire it).
+  const aiPreview = (() => {
+    if (!engineState.rawInput) return 'No patient data — complete Step 1 first.';
+    const symCount = (engineState.scored || []).length;
+    const labCount = Object.values(engineState.labs || {}).filter(v => v).length;
+    const gapCount = (engineState.missingData || []).filter(g => g.value).length;
+    return `Case loaded · ${symCount} scored conditions · ${gapCount} history items · ${labCount} labs · ${redFlags.length} red flags`;
+  })();
 
   return (
     <div className="step-panel active">
@@ -134,14 +145,14 @@ const AssessmentPanel = ({ engineState, onNext, onPrev }) => {
       {/* ── Treatment Tab ── */}
       {activeTab === 'treatment' && (
         <div className="assess-tab-pane active">
-          <div className="empty-state"><div className="empty-state-icon">💊</div>Generate assessment first to load treatment protocols.</div>
+          <TreatmentTab getTopKBProtocols={getTopKBProtocols} />
         </div>
       )}
 
       {/* ── Full Report Tab ── */}
       {activeTab === 'report' && (
         <div className="assess-tab-pane active">
-          <div className="empty-state"><div className="empty-state-icon">📄</div>Generate assessment first to view full report.</div>
+          <FullReportTab getFullReport={getFullReport} />
         </div>
       )}
 
@@ -165,6 +176,13 @@ const AssessmentPanel = ({ engineState, onNext, onPrev }) => {
               <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
                 <button className="btn btn-primary" disabled>⚡ Run AI Reasoning Engine</button>
                 <span style={{ fontSize: '11px', color: 'var(--ink4)' }}>API integration coming soon</span>
+              </div>
+              <div style={{
+                marginTop: '10px', padding: '8px 12px', background: 'var(--surface2)',
+                border: '1px solid var(--border)', borderRadius: 'var(--r)', fontSize: '11.5px',
+                color: 'var(--ink3)', fontFamily: 'var(--font-mono)',
+              }}>
+                {aiPreview}
               </div>
             </div>
           </div>

@@ -38,6 +38,7 @@ const WorkflowApp = ({ user }) => {
     notes, saveNotes, resetCase,
     getActiveConditionIds, computeCalcScore, getCalcAutofill,
     buildSOAPText, getSuggestedICD,
+    getTopKBProtocols, getFullReport,
   } = useEngine(user?.id ?? null);
 
   const [notesOpen, setNotesOpen] = useState(false);
@@ -242,6 +243,8 @@ const WorkflowApp = ({ user }) => {
           {activeStep === 5 && (
             <AssessmentPanel
               engineState={engineState}
+              getTopKBProtocols={getTopKBProtocols}
+              getFullReport={getFullReport}
               onNext={handleNextStep}
               onPrev={handlePrevStep}
             />
