@@ -35,6 +35,67 @@ export async function extractIntake({ text, audio } = {}) {
   }
 }
 
+// Stream Claude clinical reasoning. Calls /api/ai/reason and parses the
+// SSE stream into per-delta callbacks. Returns the final meta on resolve.
+//
+// Args:
+//   caseSummary  — Markdown blob describing the case
+//   citations    — array of { condName, excerpt } from the engine
+//   onDelta      — (text) => void, invoked for each token chunk
+//
+// Throws on HTTP errors. Stream errors are surfaced as { type:'error' } events
+// inside the body — consumer should also check err callbacks if exposed.
+export async function streamReasoning({ caseSummary, citations = [], onDelta, signal }) {
+  const res = await fetch('/api/ai/reason', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ caseSummary, citations }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => `HTTP ${res.status}`);
+    throw new Error(errText || `Reasoning failed (${res.status})`);
+  }
+  if (!res.body) throw new Error('Streaming not supported by this browser');
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let finalMeta = null;
+  let errorMsg = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE events are separated by blank lines.
+    let idx;
+    while ((idx = buffer.indexOf('\n\n')) !== -1) {
+      const event = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+      const dataLines = event.split('\n').filter(l => l.startsWith('data: ')).map(l => l.slice(6));
+      if (!dataLines.length) continue;
+      try {
+        const obj = JSON.parse(dataLines.join('\n'));
+        if (obj.type === 'delta' && typeof obj.text === 'string') {
+          onDelta?.(obj.text);
+        } else if (obj.type === 'done') {
+          finalMeta = obj.meta || null;
+        } else if (obj.type === 'error') {
+          errorMsg = obj.error || 'unknown stream error';
+        }
+      } catch {
+        // ignore malformed events
+      }
+    }
+  }
+
+  if (errorMsg) throw new Error(errorMsg);
+  return finalMeta;
+}
+
 // Best-effort write to public.ai_calls. Never blocks UX. Honours RLS via the
 // signed-in user's JWT — anonymous calls (cloud disabled) silently no-op.
 export async function logAiCall({ caseId, doctorId, task, meta, error }) {

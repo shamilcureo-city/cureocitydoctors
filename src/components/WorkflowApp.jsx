@@ -243,6 +243,7 @@ const WorkflowApp = ({ user }) => {
           {activeStep === 5 && (
             <AssessmentPanel
               engineState={engineState}
+              patient={patient}
               getTopKBProtocols={getTopKBProtocols}
               getFullReport={getFullReport}
               onNext={handleNextStep}

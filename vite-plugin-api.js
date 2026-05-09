@@ -76,6 +76,26 @@ export function apiDevPlugin() {
 
         res.statusCode = stdRes.status;
         stdRes.headers.forEach((v, k) => res.setHeader(k, v));
+
+        // If the handler returned a streaming body (SSE, chunked transfer),
+        // pipe each chunk through immediately. Buffering would defeat the
+        // purpose for /api/ai/reason and similar endpoints.
+        if (stdRes.body && typeof stdRes.body.getReader === 'function') {
+          const reader = stdRes.body.getReader();
+          try {
+            while (true) {
+              const { value, done } = await reader.read();
+              if (done) break;
+              if (value) res.write(Buffer.from(value));
+            }
+          } catch (err) {
+            console.error(`[api-dev] stream piping error for ${pathname}`, err);
+          } finally {
+            res.end();
+          }
+          return;
+        }
+
         const buf = Buffer.from(await stdRes.arrayBuffer());
         res.end(buf);
       });
