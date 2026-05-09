@@ -358,5 +358,9 @@ export function useEngine(doctorId = null) {
     getRxSafetyAlerts: EngineCore.getRxSafetyAlerts,
     buildRxAdvice: EngineCore.buildRxAdvice,
     buildReferralLetter: EngineCore.buildReferralLetter,
+    // Slice 8 — Sidebar polish: KB search/browser
+    searchKB: EngineCore.searchKB,
+    getAllKB: EngineCore.getAllKB,
+    lookupKB: EngineCore.lookupKB,
   };
 }

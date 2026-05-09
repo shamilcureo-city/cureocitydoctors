@@ -12,6 +12,8 @@ import AssessmentPanel from './AssessmentPanel';
 import PrescriptionPanel from './PrescriptionPanel';
 import Step8Panel from './Step8Panel';
 import DisclaimerBanner from './DisclaimerBanner';
+import SeasonalAlert from './SeasonalAlert';
+import KBModal from './KBModal';
 import { useEngine } from '../hooks/useEngine';
 import { logEvent } from '../utils/auditLog';
 import { signOut } from '../lib/auth';
@@ -40,7 +42,10 @@ const WorkflowApp = ({ user }) => {
     buildSOAPText, getSuggestedICD,
     getTopKBProtocols, getFullReport,
     getRxDrugOptions, getRxSafetyAlerts, buildRxAdvice, buildReferralLetter,
+    searchKB, getAllKB,
   } = useEngine(user?.id ?? null);
+
+  const [activeKB, setActiveKB] = useState(null);
 
   const [notesOpen, setNotesOpen] = useState(false);
 
@@ -123,6 +128,7 @@ const WorkflowApp = ({ user }) => {
   return (
     <div className="app">
       <DisclaimerBanner />
+      <SeasonalAlert />
       <Header
         user={user}
         onSignOut={handleSignOut}
@@ -138,8 +144,15 @@ const WorkflowApp = ({ user }) => {
         onSave={saveNotes}
         onClose={() => setNotesOpen(false)}
       />
+      <KBModal kb={activeKB} onClose={() => setActiveKB(null)} />
       <div className="app-body">
-        <Sidebar steps={steps} onStepClick={handleStepClick} />
+        <Sidebar
+          steps={steps}
+          onStepClick={handleStepClick}
+          searchKB={searchKB}
+          getAllKB={getAllKB}
+          onOpenKB={setActiveKB}
+        />
         <main>
           {activeStep === 1 && (
             <IntakePanel

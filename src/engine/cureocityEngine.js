@@ -8308,6 +8308,9 @@ export {
   SPECIALIST_MAP, checkInteractions,
 };
 
+// Slice 8 — Sidebar polish: KB search/browser
+export { lookupKB };
+
 export const EngineCore = {
   getScore: () => S.scored,
   getDifferential: () => S.differential,
@@ -8603,6 +8606,19 @@ export const EngineCore = {
       notes: { ...CLINICAL_NOTES },
     };
   },
+
+  // ── Slice 8 — KB search/browser (DOMless) ───────────────────
+  searchKB: (query) => {
+    const q = String(query || '').trim().toLowerCase();
+    if (q.length < 2) return [];
+    return Object.values(CLINICAL_KB).filter(kb =>
+      (kb.name || '').toLowerCase().includes(q) ||
+      (kb.key_symptoms || []).some(s => String(s).toLowerCase().includes(q)) ||
+      (kb.icd10 || '').toLowerCase().includes(q)
+    ).slice(0, 8);
+  },
+  getAllKB: () => Object.values(CLINICAL_KB),
+  lookupKB: (id) => lookupKB(id),
 
   // ── Slice 7 — Prescription Builder ──────────────────────────
   // Returns drug-selector tree: top 4 differential conditions, each with
