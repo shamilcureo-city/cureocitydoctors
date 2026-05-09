@@ -56,7 +56,12 @@ body{
 }
 
 /* ── LAYOUT ── */
-.app{display:grid;grid-template-rows:auto 52px 1fr;height:100vh;overflow:hidden}
+/* Flex column so children stack regardless of presence — the dismissable
+   disclaimer banner used to collapse a fixed grid track and push the body
+   into the header slot. */
+.app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.app > .app-header{flex:0 0 52px}
+.app > .app-body{flex:1 1 auto;min-height:0}
 .app-body{display:grid;grid-template-columns:200px 1fr 280px;overflow:hidden}
 
 /* ── LOADING SPLASH ── */
