@@ -22,7 +22,7 @@ import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
 // Edge Functions run globally and cannot be pinned, hence the explicit
 // nodejs runtime here.
 export const config = {
-  runtime: 'nodejs20.x',
+  runtime: 'nodejs',
   regions: ['bom1'],
 };
 

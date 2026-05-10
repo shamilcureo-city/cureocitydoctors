@@ -14,7 +14,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 
 export const config = {
-  runtime: 'nodejs20.x',
+  runtime: 'nodejs',
   regions: ['bom1'],
 };
 
