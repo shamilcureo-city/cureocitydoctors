@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   mapToIndianTiming, getFormPrefix, getCostEstimate,
-} from '../engine/cureocityEngine';
+} from '../engine/index.js';
 
 const sysEmoji = (systems) => {
   const map = { cv: '❤️', rs: '🫁', en: '⚗️', nr: '🧠', gi: '🫄', hm: '🩸', ms: '🦴', ps: '🧠' };

@@ -1,4 +1,4 @@
-import { SYMPTOM_BUILDER_GROUPS } from '../engine/cureocityEngine';
+import { SYMPTOM_BUILDER_GROUPS } from '../engine/index.js';
 
 // Clickable structured-symptom grid. The 10 system groups expand on click.
 // Each chip toggles a canonical KBE term in/out of the corpus, triggering

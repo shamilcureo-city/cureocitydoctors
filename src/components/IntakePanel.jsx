@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
-import { DEMOS } from '../engine/cureocityEngine';
+import { DEMOS } from '../engine/index.js';
 import PatientDetailsCard from './PatientDetailsCard';
 import VitalsCard from './VitalsCard';
 import AllergiesCard from './AllergiesCard';

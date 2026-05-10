@@ -1,4 +1,4 @@
-import { VITALS_DEFS, isAbnormalVital } from '../engine/cureocityEngine';
+import { VITALS_DEFS, isAbnormalVital } from '../engine/index.js';
 
 // Vitals quick-entry. 9-cell grid. Auto-flags abnormal/critical values.
 // Critical values can fire a separate full-screen overlay (Slice 9).
