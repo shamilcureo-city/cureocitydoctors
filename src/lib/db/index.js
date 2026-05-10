@@ -28,3 +28,10 @@ export {
   withdrawConsent,
   getConsentHistoryForPatient,
 } from './consent';
+
+export {
+  savePrescription,
+  markPrescriptionDelivered,
+  saveReferral,
+  generateRxNumber,
+} from './prescriptions';

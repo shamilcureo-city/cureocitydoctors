@@ -19,10 +19,11 @@ import KBModal from './KBModal';
 import CriticalValueOverlay from './CriticalValueOverlay';
 import PaediatricBanner from './PaediatricBanner';
 import { useEngine } from '../hooks/useEngine';
+import { useConsultation } from '../hooks/useConsultation';
 import { logEvent } from '../utils/auditLog';
 import { signOut } from '../lib/auth';
 import { clearActiveCase } from '../lib/casePersistence';
-import { getActiveOrg } from '../lib/db';
+import { getActiveOrg, savePrescription, saveReferral } from '../lib/db';
 import { EngineCore } from '../engine/index.js';
 
 const WorkflowApp = ({ user }) => {
@@ -59,6 +60,7 @@ const WorkflowApp = ({ user }) => {
   // Phase 2 — patient continuity context
   const [activeOrg, setActiveOrg] = useState(null);
   const [activePatient, setActivePatient] = useState(null);
+  const consult = useConsultation();
 
   const [notesOpen, setNotesOpen] = useState(false);
 
@@ -121,8 +123,31 @@ const WorkflowApp = ({ user }) => {
     window.location.reload();
   };
 
-  const handleNewCase = () => {
+  // Finalize the current consultation (if any) and persist its engine
+  // snapshot for audit/replay. Called before resetting case state on
+  // "New Case" or "Change patient" so we never lose what was captured.
+  const finalizeIfOpen = async (reason) => {
+    if (!consult.consultation || consult.status === 'finalized') return;
+    const t3 = engineState.differentials?.t3 || [];
+    const t1 = engineState.differentials?.t1 || [];
+    const top = t3[0] || t1[0];
+    try {
+      await consult.finalize({
+        primaryDiagnosisName: top?.name || null,
+        primaryDiagnosisIcd10: top?.kb?.icd10 || null,
+        certaintyPct: engineState.certainty || null,
+      });
+      logEvent('consult.finalized', { reason });
+    } catch {
+      // already reported to Sentry by useConsultation
+    }
+  };
+
+  const handleNewCase = async () => {
     if (engineState.rawInput && !window.confirm('Start a new case? Current data will be cleared.')) return;
+    await finalizeIfOpen('newCase');
+    consult.reset();
+    setActivePatient(null);
     resetCase();
     clearActiveCase();
     setSteps((prev) => prev.map((s) => ({
@@ -182,7 +207,7 @@ const WorkflowApp = ({ user }) => {
           {activeStep === 1 && !activePatient && (
             <PatientStartCard
               orgId={activeOrg?.id}
-              onPatientReady={({ patient, isReturning }) => {
+              onPatientReady={async ({ patient, isReturning }) => {
                 EngineCore.loadPatient(patient);
                 setActivePatient(patient);
                 syncFromEngine();
@@ -191,6 +216,31 @@ const WorkflowApp = ({ user }) => {
                   org_id: activeOrg?.id,
                   is_returning: isReturning,
                 });
+                // Open the consultation row eagerly with default consent
+                // shape (consult + AI assist = true; audio retention +
+                // WhatsApp delivery = false). The live consult banner
+                // re-affirms patient consent verbally before any audio
+                // is captured. Phase 2.4 will pass explicit consents.
+                if (activeOrg?.id && user?.id) {
+                  try {
+                    await consult.start({
+                      orgId: activeOrg.id,
+                      patientId: patient.id,
+                      doctorId: user.id,
+                      modality: 'in_person',
+                      consents: {
+                        consult: true,
+                        aiAssist: true,
+                        audioRetention: false,
+                        whatsappDelivery: false,
+                      },
+                    });
+                  } catch (err) {
+                    // useConsultation already reported via Sentry; UI will
+                    // surface the error via consult.error in next render.
+                    console.warn('[consult.start] failed', err);
+                  }
+                }
               }}
             />
           )}
@@ -214,7 +264,12 @@ const WorkflowApp = ({ user }) => {
                   {activePatient.phone_e164}
                 </span>
                 <button
-                  onClick={() => { setActivePatient(null); resetCase(); }}
+                  onClick={async () => {
+                    await finalizeIfOpen('changePatient');
+                    consult.reset();
+                    setActivePatient(null);
+                    resetCase();
+                  }}
                   className="btn btn-xs btn-secondary"
                   style={{ marginLeft: 'auto', color: 'var(--ink3)' }}
                 >
@@ -259,6 +314,7 @@ const WorkflowApp = ({ user }) => {
                   engineState={engineState}
                   drugs={engineState.drugs}
                   allergies={allergies}
+                  orgId={activeOrg?.id}
                   onSync={syncFromEngine}
                   onConsultComplete={() => {
                     // Hand off to the existing review flow at Step 2
@@ -407,6 +463,48 @@ const WorkflowApp = ({ user }) => {
               buildReferralLetter={buildReferralLetter}
               onNext={handleNextStep}
               onPrev={handlePrevStep}
+              onRxFinalized={async ({ drugs, advice, followUpDays }) => {
+                if (!consult.consultation || !activeOrg?.id || !activePatient?.id || !user?.id) return;
+                try {
+                  const rx = await savePrescription({
+                    consultationId: consult.consultation.id,
+                    orgId: activeOrg.id,
+                    patientId: activePatient.id,
+                    doctorId: user.id,
+                    drugs, advice, followUpDays,
+                  });
+                  logEvent('rx.finalize', {
+                    rx_id: rx.id, rx_number: rx.rx_number,
+                    drug_count: drugs.length,
+                    consultation_id: consult.consultation.id,
+                  });
+                  // Auto-finalize the consultation now that we have a primary Rx
+                  await finalizeIfOpen('rxFinalized');
+                } catch (err) {
+                  console.warn('[rx.persist] failed', err);
+                }
+              }}
+              onReferralGenerated={async ({ letter }) => {
+                if (!consult.consultation || !activeOrg?.id || !activePatient?.id) return;
+                try {
+                  const ref = await saveReferral({
+                    consultationId: consult.consultation.id,
+                    orgId: activeOrg.id,
+                    patientId: activePatient.id,
+                    specialistType: letter.specialistName,
+                    isUrgent: letter.isUrgent,
+                    letterText: letter.text,
+                  });
+                  logEvent('referral.draft', {
+                    referral_id: ref.id,
+                    specialist: letter.specialistName,
+                    is_urgent: letter.isUrgent,
+                    consultation_id: consult.consultation.id,
+                  });
+                } catch (err) {
+                  console.warn('[referral.persist] failed', err);
+                }
+              }}
             />
           )}
 
