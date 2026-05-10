@@ -8268,6 +8268,74 @@ export { lookupKB };
 // Slice 9 — Critical-value alerts + paediatric warning
 export { CRITICAL_LAB_RULES };
 
+// ── Sprint 1.3 — Session factory ─────────────────────────────────
+// createSessionState() returns a fresh state object with the same shape
+// as the current module-level S/S_VITALS/etc. It exists to support future
+// multi-session callers (Phase 1 ambient streaming, server-side scoring).
+//
+// Today the engine still uses the module-level singletons. resetCase()
+// fully clears them. createSessionState() is opt-in for callers that
+// want isolation guarantees BEFORE the full session-container migration.
+//
+// Returns an object you can read/clone for snapshotting; mutating it does
+// NOT affect the live engine state.
+export function createSessionState() {
+  return {
+    S: {
+      step: 1,
+      unlockedSteps: new Set([1]),
+      patient: { age: null, gender: '', comorbid: '' },
+      rawInput: '',
+      corpus: '',
+      normalizations: [],
+      activeSystems: {},
+      redFlags: [],
+      scored: [],
+      gaps: [],
+      examFindings: {},
+      activeExamFindings: {},
+      drugs: [],
+      interactions: [],
+      labs: {},
+      labAlerts: [],
+      differential: { t1: [], t2: [], t3: [] },
+      nextSteps: [],
+      certainty: 0,
+      certaintyNote: '',
+      structuredSymptoms: [],
+    },
+    S_VITALS: {},
+    S_ALLERGIES: [],
+    S_RX: {
+      selectedDrugs: [],
+      patientName: '',
+      diagnosis: '',
+      doctorName: 'Dr.',
+      clinicName: 'Cureocity Clinical',
+    },
+    S_ICD: { selected: new Set() },
+    CALC_STATE: {},
+    CLINICAL_NOTES: { intake: '', history: '', examination: '', drugs: '', labs: '', impression: '' },
+  };
+}
+
+// getSessionSnapshot() captures the current live engine state as a plain
+// object that can be persisted (e.g. to consultations.engine_snapshot
+// in Phase 0.4 audit trail) or compared in tests.
+//
+// Mutating the returned object does NOT affect the live engine.
+export function getSessionSnapshot() {
+  return {
+    S: structuredClone(S),
+    S_VITALS: structuredClone(S_VITALS),
+    S_ALLERGIES: structuredClone(S_ALLERGIES),
+    S_RX: { ...S_RX, selectedDrugs: structuredClone(S_RX.selectedDrugs) },
+    S_ICD: { selected: new Set(S_ICD.selected) },
+    CALC_STATE: structuredClone(CALC_STATE),
+    CLINICAL_NOTES: { ...CLINICAL_NOTES },
+  };
+}
+
 export const EngineCore = {
   getScore: () => S.scored,
   getDifferential: () => S.differential,
@@ -8367,6 +8435,18 @@ export const EngineCore = {
     Object.keys(S_VITALS).forEach((k) => delete S_VITALS[k]);
     S_ALLERGIES.length = 0;
     Object.keys(CLINICAL_NOTES).forEach((k) => { CLINICAL_NOTES[k] = ''; });
+    // Sprint 1.3 — clear the prescription/calculator/ICD selection state
+    // these accumulated across consults silently before. Today the React
+    // components own their selection state, so this is defensive — but
+    // anyone importing S_RX / CALC_STATE / S_ICD expects fresh state on
+    // a new case, and we now guarantee that.
+    S_RX.selectedDrugs.length = 0;
+    S_RX.patientName = '';
+    S_RX.diagnosis = '';
+    S_RX.doctorName = 'Dr.';
+    S_RX.clinicName = 'Cureocity Clinical';
+    Object.keys(CALC_STATE).forEach((k) => delete CALC_STATE[k]);
+    S_ICD.selected.clear();
   },
 
   // ── Slice 5 — Calculators / SOAP / ICD ──────────────────────

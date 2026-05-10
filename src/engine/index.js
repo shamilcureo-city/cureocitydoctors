@@ -73,3 +73,9 @@ export { termPresent } from './cureocityEngine.js';
 
 // ── Lower-level scoring (used by engine internals + tests only) ───
 export { kbeScoreAll, kbeScoreCondition } from './cureocityEngine.js';
+
+// ── Session factory + snapshot (Sprint 1.3) ──────────────────────
+// Forward-facing API for multi-session callers in Phase 1+.
+// createSessionState() returns a fresh state shape; getSessionSnapshot()
+// captures the current live state for audit/persistence.
+export { createSessionState, getSessionSnapshot } from './cureocityEngine.js';
