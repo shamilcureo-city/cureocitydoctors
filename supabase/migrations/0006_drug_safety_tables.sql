@@ -185,7 +185,8 @@ create unique index if not exists red_flag_phrases_uniq on public.red_flag_phras
 create table if not exists public.tool_calls (
   id                  uuid        primary key default gen_random_uuid(),
   consultation_id     uuid        references public.consultations(id) on delete cascade,
-  consultation_event_id uuid      references public.consultation_events(id) on delete set null,
+  -- consultation_events.id is bigserial (bigint) — see migration 0002
+  consultation_event_id bigint    references public.consultation_events(id) on delete set null,
   doctor_id           uuid        references public.doctors(id),
   tool_name           text        not null,    -- 'drug_interactions','dose_check', etc.
   tool_args           jsonb       not null,

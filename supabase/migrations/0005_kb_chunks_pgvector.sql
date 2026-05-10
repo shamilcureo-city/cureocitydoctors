@@ -97,7 +97,8 @@ create unique index if not exists kb_versions_one_active
 create table if not exists public.agent_kb_citations (
   id                   uuid        primary key default gen_random_uuid(),
   consultation_id      uuid        not null references public.consultations(id) on delete cascade,
-  consultation_event_id uuid       references public.consultation_events(id) on delete set null,
+  -- consultation_events.id is bigserial (bigint) — see migration 0002
+  consultation_event_id bigint     references public.consultation_events(id) on delete set null,
   chunk_id             uuid        references public.kb_chunks(id) on delete set null,
   cited_id_raw         text        not null,            -- what the agent said
   is_valid             boolean     not null,            -- chunk_id resolves to a real row
