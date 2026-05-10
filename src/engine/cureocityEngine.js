@@ -8368,6 +8368,30 @@ export const EngineCore = {
   },
   getPatient: () => ({ ...S.patient }),
 
+  // Phase 2 — Load a patient from the DB into engine state.
+  // Resets the case first (no leakage from a previous consult), then
+  // applies patient-level facts (age, gender, comorbidities, allergies)
+  // so they're scored from the very first chunk of the new consult.
+  loadPatient: (patient) => {
+    if (!patient) return;
+    EngineCore.resetCase();
+    if (patient.age != null) S.patient.age = parseInt(patient.age) || null;
+    if (patient.gender) S.patient.gender = patient.gender;
+    if (Array.isArray(patient.comorbidities) && patient.comorbidities.length) {
+      S.patient.comorbid = patient.comorbidities.join(', ');
+    }
+    if (Array.isArray(patient.allergies)) {
+      for (const a of patient.allergies) {
+        if (!a?.allergen) continue;
+        S_ALLERGIES.push({
+          allergen: a.allergen,
+          reaction: a.reaction || 'Unknown reaction',
+          severity: a.severity || 'unknown',
+        });
+      }
+    }
+  },
+
   // Vitals — mutate S_VITALS + S.examFindings without DOM render
   setVital: (key, value) => {
     S_VITALS[key] = value;
