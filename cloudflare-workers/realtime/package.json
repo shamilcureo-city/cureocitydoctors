@@ -1,0 +1,20 @@
+{
+  "name": "@cureocity/realtime",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cureocity live-consult WebSocket bridge — Cloudflare Workers + Durable Objects + Gemini Live",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "secret:put": "wrangler secret put"
+  },
+  "devDependencies": {
+    "wrangler": "^3.95.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

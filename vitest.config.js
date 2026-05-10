@@ -4,7 +4,11 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     globals: true,
-    include: ['src/**/__tests__/**/*.test.{js,jsx}', 'src/**/*.test.{js,jsx}'],
+    include: [
+      'src/**/__tests__/**/*.test.{js,jsx}',
+      'src/**/*.test.{js,jsx}',
+      'api/**/__tests__/**/*.test.{js,jsx}',
+    ],
     exclude: ['node_modules', 'dist', '.git'],
     reporters: ['default'],
     coverage: {
