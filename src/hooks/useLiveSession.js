@@ -62,6 +62,12 @@ export function useLiveSession({ orgId = null, onSync } = {}) {
   // chunk goes through state transitions: 'sending' → 'success' | 'failed'.
   const [chunks, setChunks] = useState([]);
   const [lastError, setLastError] = useState(null);
+  // Diarized turns (speaker + text) accumulated across chunks. The
+  // panel renders this as a doctor/patient interleaved transcript.
+  const [turns, setTurns] = useState([]);
+  // Latest doctor-actionable next question suggested by the model.
+  // Replaced on every chunk that returns a non-null next_question.
+  const [nextQuestion, setNextQuestion] = useState(null);
 
   const transcriptRef = useRef('');
   const latenciesRef = useRef([]);
@@ -243,10 +249,37 @@ export function useLiveSession({ orgId = null, onSync } = {}) {
       setTranscript(next);
     }
 
+    // Speaker-diarized turns — append per-chunk so the doctor sees
+    // the conversation interleaved (D: ... / P: ...) live.
+    if (Array.isArray(json.speakers) && json.speakers.length > 0) {
+      const tagged = json.speakers
+        .filter(t => t?.text && t.text.trim())
+        .map(t => ({
+          speaker: t.speaker === 'doctor' || t.speaker === 'patient' ? t.speaker : 'unknown',
+          text: t.text.trim(),
+          chunk: sequence,
+        }));
+      if (tagged.length) setTurns(prev => [...prev, ...tagged]);
+    }
+
+    // "Ask next" suggestion — replace whatever was on screen with the
+    // latest one. Null clears it (model felt the conversation was
+    // well-covered).
+    if (json.next_question && json.next_question.text) {
+      setNextQuestion({
+        text: json.next_question.text,
+        reason: json.next_question.reason || '',
+        chunk: sequence,
+        ts: Date.now(),
+      });
+    }
+
     upsertChunk(sequence, {
       status: 'success',
       transcriptDelta: json.transcript_delta || '',
       hpiDelta: json.hpi_delta || '',
+      speakerTurns: (json.speakers || []).length,
+      nextQuestion: json.next_question?.text || null,
       vitalsCount: json.new_vitals?.length ?? 0,
       labsCount: json.new_labs?.length ?? 0,
       drugsCount: json.new_drugs?.length ?? 0,
@@ -312,8 +345,12 @@ export function useLiveSession({ orgId = null, onSync } = {}) {
     setRedFlagsHeard([]);
     setChunks([]);
     setLastError(null);
+    setTurns([]);
+    setNextQuestion(null);
     latenciesRef.current = [];
   }, []);
+
+  const dismissNextQuestion = useCallback(() => setNextQuestion(null), []);
 
   const start = useCallback(async () => {
     resetSession();
@@ -347,6 +384,8 @@ export function useLiveSession({ orgId = null, onSync } = {}) {
     state: audio.state === 'idle' ? testAudio.state : audio.state,
     error: audio.error || testAudio.error,
     transcript,
+    turns,
+    nextQuestion,
     chunkCount,
     totalSpendInr,
     latencyMsP50,
@@ -358,5 +397,6 @@ export function useLiveSession({ orgId = null, onSync } = {}) {
     stop,
     runPipelineTest,
     resetSession,
+    dismissNextQuestion,
   };
 }
