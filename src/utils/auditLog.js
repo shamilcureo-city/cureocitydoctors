@@ -1,4 +1,5 @@
 import { supabase, supabaseConfigured } from '../lib/supabaseClient';
+import { addBreadcrumb } from '../lib/errorReporting';
 
 const STORAGE_KEY = 'cx_audit_log_v1';
 const PENDING_KEY = 'cx_audit_pending_v1';
@@ -64,6 +65,15 @@ export function logEvent(type, payload = {}) {
     writeArray(PENDING_KEY, pending);
     scheduleFlush();
   }
+
+  // Sentry breadcrumb: gives us the trail leading up to any crash. PII
+  // fields in payload are auto-redacted by errorReporting.beforeBreadcrumb.
+  addBreadcrumb({
+    category: type,
+    message: type,
+    data: payload,
+    level: type.startsWith('alert.') ? 'warning' : 'info',
+  });
 
   return event;
 }
