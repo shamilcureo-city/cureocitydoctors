@@ -286,58 +286,50 @@ insert into public.drug_interactions (kind, drug_a_id, drug_b_id, severity, mech
  (select id from d where generic_name='omeprazole'),
  'moderate', 'CYP2C19 inhibition → reduced clopidogrel activation',
  'Prefer pantoprazole if PPI required (less CYP2C19 inhibition).',
- 'B', 'FDA Drug Safety Comm 2009'),
+ 'B', 'FDA Drug Safety Comm 2009');
 
 -- ─────────────────────────────────────────────────────────────────────
 -- Drug-disease interactions
 -- ─────────────────────────────────────────────────────────────────────
+-- Separate INSERT because the CHECK constraint requires partner_condition
+-- to be set at INSERT time for kind='drug_disease' (not patchable via UPDATE).
 
-('drug_disease',
- (select id from d where generic_name='ibuprofen'), null, 'major',
- 'NSAID worsens renal function in CKD',
- 'Avoid in CKD stage 3-5. Use paracetamol.',
- 'A', 'KDIGO 2022'),
-('drug_disease',
- (select id from d where generic_name='diclofenac'), null, 'major',
- 'NSAID worsens renal function in CKD',
- 'Avoid in CKD stage 3-5.',
- 'A', 'KDIGO 2022'),
-('drug_disease',
- (select id from d where generic_name='aceclofenac'), null, 'major',
- 'NSAID worsens renal function in CKD',
- 'Avoid in CKD stage 3-5.',
- 'A', 'KDIGO 2022'),
-('drug_disease',
- (select id from d where generic_name='metformin'), null, 'contraindicated',
- 'Lactic acidosis risk in severe CKD',
- 'Contraindicated if eGFR <30. Reduce dose if eGFR 30-45.',
- 'A', 'NICE NG28'),
-('drug_disease',
- (select id from d where generic_name='atenolol'), null, 'major',
- 'May mask hypoglycaemia; bronchospasm in asthma',
- 'Avoid in asthma. Use cardioselective alternative if essential.',
- 'A', 'BNF 86'),
-('drug_disease',
- (select id from d where generic_name='metoprolol'), null, 'moderate',
- 'May worsen bronchospasm in asthma at higher doses',
- 'Avoid in moderate-severe asthma; cardioselective lower-dose acceptable in mild.',
- 'B', 'BNF 86');
+with d as (select id, generic_name from public.drug_master)
+insert into public.drug_interactions
+  (kind, drug_a_id, partner_condition, severity, mechanism, advice, evidence_level, source) values
+('drug_disease', (select id from d where generic_name='ibuprofen'),
+   'CKD stage 3-5', 'major',
+   'NSAID worsens renal function in CKD',
+   'Avoid in CKD stage 3-5. Use paracetamol.',
+   'A', 'KDIGO 2022'),
+('drug_disease', (select id from d where generic_name='diclofenac'),
+   'CKD stage 3-5', 'major',
+   'NSAID worsens renal function in CKD',
+   'Avoid in CKD stage 3-5.',
+   'A', 'KDIGO 2022'),
+('drug_disease', (select id from d where generic_name='aceclofenac'),
+   'CKD stage 3-5', 'major',
+   'NSAID worsens renal function in CKD',
+   'Avoid in CKD stage 3-5.',
+   'A', 'KDIGO 2022'),
+('drug_disease', (select id from d where generic_name='metformin'),
+   'CKD stage 4-5 (eGFR <30)', 'contraindicated',
+   'Lactic acidosis risk in severe CKD',
+   'Contraindicated if eGFR <30. Reduce dose if eGFR 30-45.',
+   'A', 'NICE NG28'),
+('drug_disease', (select id from d where generic_name='atenolol'),
+   'asthma', 'major',
+   'May mask hypoglycaemia; bronchospasm in asthma',
+   'Avoid in asthma. Use cardioselective alternative if essential.',
+   'A', 'BNF 86'),
+('drug_disease', (select id from d where generic_name='metoprolol'),
+   'asthma', 'moderate',
+   'May worsen bronchospasm in asthma at higher doses',
+   'Avoid in moderate-severe asthma; cardioselective lower-dose acceptable in mild.',
+   'B', 'BNF 86');
 
--- Set partner_condition for the drug_disease rows
-update public.drug_interactions
-   set partner_condition = 'CKD stage 3-5'
- where kind = 'drug_disease'
-   and drug_a_id in (select id from public.drug_master
-                     where generic_name in ('ibuprofen','diclofenac','aceclofenac'));
-update public.drug_interactions
-   set partner_condition = 'CKD stage 4-5 (eGFR <30)'
- where kind = 'drug_disease'
-   and drug_a_id = (select id from public.drug_master where generic_name = 'metformin');
-update public.drug_interactions
-   set partner_condition = 'asthma'
- where kind = 'drug_disease'
-   and drug_a_id in (select id from public.drug_master
-                     where generic_name in ('atenolol','metoprolol'));
+-- (UPDATE statements that previously patched partner_condition removed —
+-- the column is now set at INSERT time per the CHECK constraint.)
 
 -- ─────────────────────────────────────────────────────────────────────
 -- Drug-pregnancy
