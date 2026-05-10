@@ -18,6 +18,7 @@ import SeasonalAlert from './SeasonalAlert';
 import KBModal from './KBModal';
 import CriticalValueOverlay from './CriticalValueOverlay';
 import PaediatricBanner from './PaediatricBanner';
+import ConcernReportButton from './ConcernReportButton';
 import { useEngine } from '../hooks/useEngine';
 import { useConsultation } from '../hooks/useConsultation';
 import { logEvent } from '../utils/auditLog';
@@ -284,6 +285,20 @@ const WorkflowApp = ({ user }) => {
         onClose={() => setNotesOpen(false)}
       />
       <KBModal kb={activeKB} onClose={() => setActiveKB(null)} />
+      <ConcernReportButton
+        orgId={activeOrg?.id}
+        consultationId={consult.consultation?.id}
+        context={{
+          active_step: activeStep,
+          intake_mode: intakeMode,
+          top_differential: engineState.differentials?.t1?.[0]?.name
+            || engineState.differentials?.t3?.[0]?.name
+            || null,
+          certainty_pct: engineState.certainty,
+          drug_count: engineState.drugs?.length || 0,
+          lab_count: Object.values(engineState.labs || {}).filter(v => v).length,
+        }}
+      />
       <div className="app-body">
         <Sidebar
           steps={steps}

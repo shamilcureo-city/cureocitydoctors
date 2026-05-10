@@ -35,3 +35,9 @@ export {
   saveReferral,
   generateRxNumber,
 } from './prescriptions';
+
+export {
+  reportClinicalConcern,
+  CONCERN_CATEGORIES,
+  CONCERN_SEVERITIES,
+} from './concerns';
