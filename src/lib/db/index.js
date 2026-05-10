@@ -42,3 +42,10 @@ export {
   CONCERN_CATEGORIES,
   CONCERN_SEVERITIES,
 } from './concerns';
+
+export {
+  getMyDoctorProfile,
+  updateMyDoctorProfile,
+  setMyRegistrationNumber,
+  getMyRegistrationNumber,
+} from './profile';

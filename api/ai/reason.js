@@ -17,6 +17,9 @@ import { checkOrgBudget, budgetBlockedResponse } from '../_lib/budgetCheck.js';
 export const config = {
   runtime: 'nodejs',
   regions: ['bom1'],
+  // Claude Opus streaming responses can run 20-45s for the full
+  // structured reasoning. Default 10s would cut the stream short.
+  maxDuration: 60,
 };
 
 const DEFAULT_MODEL = 'claude-opus-4-7';

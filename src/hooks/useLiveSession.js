@@ -46,9 +46,11 @@ function median(nums) {
   return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
 }
 
-// Per-chunk fetch budget. Gemini Flash audio extraction normally returns
-// in 1-2s; 30s gives plenty of headroom and surfaces network hangs.
-const CHUNK_FETCH_TIMEOUT_MS = 30_000;
+// Per-chunk fetch budget. The Vercel function caps at 60s
+// (maxDuration). We wait up to 55s — long enough that the server
+// either responds or hits its own ceiling, never client-aborts a
+// healthy in-flight call.
+const CHUNK_FETCH_TIMEOUT_MS = 55_000;
 
 export function useLiveSession({ orgId = null, onSync } = {}) {
   const [transcript, setTranscript] = useState('');
