@@ -311,21 +311,71 @@ const LiveConsultPanel = ({
             </div>
           )}
 
-          {/* Transcript — only when there's content to show */}
-          {(session.transcript || isRecording) && (
+          {/* Diarized transcript — doctor / patient turns interleaved.
+              Falls back to the verbatim string when speakers haven't
+              been resolved yet (e.g., test pipeline silence). */}
+          {(session.turns?.length > 0 || session.transcript || isRecording) && (
             <div className="card">
               <div className="card-head">
-                <div className="card-title">📝 Live Transcript</div>
-                <div className="card-sub">{session.transcript.length} chars · verbatim · code-mixing preserved</div>
+                <div className="card-title">📝 Live Conversation</div>
+                <div className="card-sub">
+                  {session.turns?.length > 0
+                    ? `${session.turns.length} turn${session.turns.length === 1 ? '' : 's'} · doctor + patient diarized`
+                    : `${session.transcript.length} chars · verbatim`}
+                </div>
               </div>
               <div className="card-body" style={{
                 fontFamily: 'var(--font-sans)', fontSize: '13px', lineHeight: 1.7,
-                color: 'var(--ink2)', maxHeight: '320px', overflowY: 'auto',
-                whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                color: 'var(--ink2)', maxHeight: '360px', overflowY: 'auto',
               }}>
-                {session.transcript || (
-                  <span style={{ color: 'var(--ink4)', fontStyle: 'italic' }}>
-                    Listening… first chunk arrives in ~10 seconds.
+                {session.turns?.length > 0 ? (
+                  session.turns.map((t, i) => {
+                    const isDoctor = t.speaker === 'doctor';
+                    const isPatient = t.speaker === 'patient';
+                    const color = isDoctor ? 'var(--ok)' : isPatient ? 'var(--info)' : 'var(--ink4)';
+                    const bg = isDoctor ? 'var(--ok-t)' : isPatient ? 'var(--info-t)' : 'var(--surface2)';
+                    const label = isDoctor ? 'D' : isPatient ? 'P' : '?';
+                    return (
+                      <div
+                        key={`${t.chunk}-${i}`}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '28px 1fr',
+                          gap: '8px',
+                          marginBottom: '6px',
+                        }}
+                      >
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            width: '24px',
+                            height: '20px',
+                            borderRadius: '4px',
+                            background: bg,
+                            color,
+                            fontSize: '10.5px',
+                            fontWeight: 800,
+                            marginTop: '2px',
+                          }}
+                          title={t.speaker}
+                        >
+                          {label}
+                        </span>
+                        <span style={{ wordBreak: 'break-word', whiteSpace: 'pre-wrap', color: isDoctor ? 'var(--ink)' : 'var(--ink2)' }}>
+                          {t.text}
+                        </span>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {session.transcript || (
+                      <span style={{ color: 'var(--ink4)', fontStyle: 'italic' }}>
+                        Listening… first chunk arrives in ~10 seconds.
+                      </span>
+                    )}
                   </span>
                 )}
                 {isRecording && (
@@ -358,8 +408,52 @@ const LiveConsultPanel = ({
           )}
         </div>
 
-        {/* RIGHT: live differential panel */}
+        {/* RIGHT: live co-pilot — "Ask next" + differential panel */}
         <div>
+          {session.nextQuestion && (
+            <div style={{
+              background: 'linear-gradient(135deg, var(--en-t), var(--surface))',
+              border: '2px solid var(--accent)',
+              borderRadius: 'var(--r-lg)',
+              padding: '12px 14px',
+              marginBottom: '12px',
+              boxShadow: '0 4px 12px rgba(10,122,110,0.12)',
+              animation: 'fadeInUp .25s ease',
+            }}>
+              <div style={{
+                fontSize: '9.5px', fontWeight: 800,
+                color: 'var(--accent)', textTransform: 'uppercase',
+                letterSpacing: '.8px', marginBottom: '6px',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              }}>
+                <span>💡 Ask next</span>
+                <button
+                  onClick={session.dismissNextQuestion}
+                  title="Dismiss"
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--ink4)', fontSize: '12px', padding: 0,
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+              <div style={{
+                fontSize: '14px', fontWeight: 700,
+                color: 'var(--ink)', lineHeight: 1.4, marginBottom: '4px',
+              }}>
+                "{session.nextQuestion.text}"
+              </div>
+              {session.nextQuestion.reason && (
+                <div style={{
+                  fontSize: '11px', color: 'var(--ink3)',
+                  fontStyle: 'italic', lineHeight: 1.5,
+                }}>
+                  {session.nextQuestion.reason}
+                </div>
+              )}
+            </div>
+          )}
           <LivePanel
             isProcessing={isRecording && session.chunkCount === 0}
             engineState={engineState}
