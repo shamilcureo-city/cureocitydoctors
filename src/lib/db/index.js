@@ -6,6 +6,7 @@ export {
   getMyOrgs,
   getActiveOrg,
   updateOrg,
+  ensureUserBootstrapped,
 } from './orgs';
 
 export {

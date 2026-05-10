@@ -70,13 +70,21 @@ const WorkflowApp = ({ user }) => {
   // Load the doctor's active org + all memberships on sign-in.
   // myOrgs feeds the org-switcher; activeOrg is the current scope for
   // all DB writes and /api/* budget cap.
+  //
+  // getActiveOrg() self-heals: if there's no membership it auto-creates
+  // a personal solo_doctor org + org_owner membership. So we always
+  // re-fetch myOrgs after getActiveOrg returns, to pick up the freshly
+  // bootstrapped row in the switcher dropdown.
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getActiveOrg(), getMyOrgs()]).then(([org, memberships]) => {
+    (async () => {
+      const org = await getActiveOrg();
       if (cancelled) return;
       setActiveOrg(org);
+      const memberships = await getMyOrgs();
+      if (cancelled) return;
       setMyOrgs(memberships);
-    }).catch(() => {});
+    })().catch(() => {});
     return () => { cancelled = true; };
   }, []);
 
