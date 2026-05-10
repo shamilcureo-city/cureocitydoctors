@@ -9,6 +9,7 @@
 // This function only replaces stage 1 (normalization + extraction).
 
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { checkOrgBudget, budgetBlockedResponse } from '../_lib/budgetCheck.js';
 
 // Run in Mumbai (Vercel `bom1`) so the doctor's intake narrative stays on
 // Indian infrastructure for the function lifetime — closer to DPDP-residency
@@ -120,10 +121,16 @@ export default async function handler(req) {
   const text = typeof body?.text === 'string' ? body.text.trim() : '';
   const audio = body?.audio; // { data: base64, mimeType: string }
   const hasAudio = audio && typeof audio.data === 'string' && typeof audio.mimeType === 'string';
+  const orgId = typeof body?.orgId === 'string' ? body.orgId : null;
 
   if (!text && !hasAudio) {
     return jsonResponse({ error: 'text or audio is required' }, 400);
   }
+
+  // Cost cap — refuse to call Gemini if the org has hit its daily budget.
+  // Fails open if Supabase admin client misconfigured (cap is a fuse, not a license).
+  const budget = await checkOrgBudget(orgId);
+  if (budget.blocked) return budgetBlockedResponse(budget);
   if (text.length > MAX_INPUT_CHARS) {
     return jsonResponse({ error: `text too long (max ${MAX_INPUT_CHARS} chars)` }, 413);
   }
@@ -188,6 +195,11 @@ export default async function handler(req) {
         costInr: Number(costInr.toFixed(4)),
         latencyMs,
         inputModality: hasAudio ? 'audio' : 'text',
+        budget: {
+          today_spend_inr: budget.todaySpendInr,
+          cap_inr: budget.capInr,
+          near_cap: budget.nearCap,
+        },
       },
     });
   } catch (err) {
