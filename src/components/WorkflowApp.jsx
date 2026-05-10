@@ -23,7 +23,8 @@ import { useConsultation } from '../hooks/useConsultation';
 import { logEvent } from '../utils/auditLog';
 import { signOut } from '../lib/auth';
 import { clearActiveCase } from '../lib/casePersistence';
-import { getActiveOrg, savePrescription, saveReferral } from '../lib/db';
+import { getActiveOrg, getMyOrgs, savePrescription, saveReferral } from '../lib/db';
+import { supabase, supabaseConfigured } from '../lib/supabaseClient';
 import { EngineCore } from '../engine/index.js';
 
 const WorkflowApp = ({ user }) => {
@@ -59,20 +60,106 @@ const WorkflowApp = ({ user }) => {
 
   // Phase 2 — patient continuity context
   const [activeOrg, setActiveOrg] = useState(null);
+  const [myOrgs, setMyOrgs] = useState([]);
   const [activePatient, setActivePatient] = useState(null);
   const consult = useConsultation();
 
   const [notesOpen, setNotesOpen] = useState(false);
 
-  // Load the doctor's active org once on sign-in. Used by all DB writes
-  // and by /api/* budget cap.
+  // Load the doctor's active org + all memberships on sign-in.
+  // myOrgs feeds the org-switcher; activeOrg is the current scope for
+  // all DB writes and /api/* budget cap.
   useEffect(() => {
     let cancelled = false;
-    getActiveOrg().then(org => {
-      if (!cancelled) setActiveOrg(org);
+    Promise.all([getActiveOrg(), getMyOrgs()]).then(([org, memberships]) => {
+      if (cancelled) return;
+      setActiveOrg(org);
+      setMyOrgs(memberships);
     }).catch(() => {});
     return () => { cancelled = true; };
   }, []);
+
+  // Switching orgs clears any patient/consult state in flight — those are
+  // org-scoped and must not leak across.
+  const handleSwitchOrg = (orgId) => {
+    const target = myOrgs.find(m => m.org_id === orgId)?.organizations;
+    if (!target) return;
+    if (activePatient && !window.confirm('Switching organizations will end the current consult. Continue?')) return;
+    setActiveOrg(target);
+    setActivePatient(null);
+    consult.reset();
+    resetCase();
+    setActiveStep(1);
+    logEvent('org.switch', { to: orgId, type: target.type });
+  };
+
+  // Owner-only: export the last 30 days of consultations + prescriptions
+  // as CSV. Used by clinic owners to reconcile billing or hand off to
+  // their accountant. Tally/Vyapar/etc can import a CSV directly.
+  const handleExportBilling = async () => {
+    if (!supabaseConfigured || !activeOrg?.id) return;
+    const sinceIso = new Date(Date.now() - 30 * 86400 * 1000).toISOString();
+    try {
+      const { data: consults, error: cErr } = await supabase
+        .from('consultations')
+        .select('id, started_at, ended_at, modality, chief_complaint, primary_diagnosis_icd10, primary_diagnosis_name, certainty_pct, doctor_id, patient_id, kb_version')
+        .eq('org_id', activeOrg.id)
+        .gte('started_at', sinceIso)
+        .order('started_at', { ascending: false });
+      if (cErr) throw cErr;
+      const { data: prescriptions, error: rErr } = await supabase
+        .from('prescriptions')
+        .select('rx_number, consultation_id, created_at, drugs, follow_up_days, delivered_via')
+        .eq('org_id', activeOrg.id)
+        .gte('created_at', sinceIso);
+      if (rErr) throw rErr;
+      const rxByConsult = new Map();
+      (prescriptions || []).forEach(r => {
+        const list = rxByConsult.get(r.consultation_id) || [];
+        list.push(r);
+        rxByConsult.set(r.consultation_id, list);
+      });
+      const escape = (v) => {
+        if (v == null) return '';
+        const s = String(v).replace(/"/g, '""');
+        return /[",\n]/.test(s) ? `"${s}"` : s;
+      };
+      const headers = [
+        'started_at', 'ended_at', 'modality', 'chief_complaint',
+        'primary_diagnosis_icd10', 'primary_diagnosis_name', 'certainty_pct',
+        'doctor_id', 'patient_id', 'kb_version',
+        'rx_count', 'rx_numbers', 'drug_summary', 'follow_up_days',
+      ];
+      const rows = (consults || []).map(c => {
+        const rxs = rxByConsult.get(c.id) || [];
+        const drugSummary = rxs.flatMap(r => (r.drugs || []).map(d => d.generic)).join('; ');
+        return [
+          c.started_at, c.ended_at, c.modality, c.chief_complaint,
+          c.primary_diagnosis_icd10, c.primary_diagnosis_name, c.certainty_pct,
+          c.doctor_id, c.patient_id, c.kb_version,
+          rxs.length,
+          rxs.map(r => r.rx_number).join('; '),
+          drugSummary,
+          rxs[0]?.follow_up_days ?? '',
+        ];
+      });
+      const csv = [
+        headers.join(','),
+        ...rows.map(r => r.map(escape).join(',')),
+      ].join('\n');
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `cureocity-billing-${activeOrg.name.replace(/[^a-z0-9]+/gi, '_')}-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      logEvent('billing.export', { org_id: activeOrg.id, rows: rows.length });
+    } catch (err) {
+      console.warn('[billing.export] failed', err);
+    }
+  };
 
   const [steps, setSteps] = useState([
     { id: 1, label: 'Intake', sublabel: 'Complaint + History', active: true, locked: false },
@@ -185,6 +272,10 @@ const WorkflowApp = ({ user }) => {
         activeStep={activeStep}
         onOpenNotes={() => setNotesOpen(true)}
         onNewCase={handleNewCase}
+        activeOrg={activeOrg}
+        myOrgs={myOrgs}
+        onSwitchOrg={handleSwitchOrg}
+        onExportBilling={handleExportBilling}
       />
       <NotesModal
         open={notesOpen}
