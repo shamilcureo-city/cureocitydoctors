@@ -5,21 +5,16 @@ import { useLiveSession } from '../hooks/useLiveSession';
 /**
  * LiveConsultPanel — the ambient consult experience.
  *
- * Big mic button → captures the consult in 8-second chunks → Gemini
- * extracts deltas → engine state updates → LivePanel sidebar shows the
- * differential / red flags / next questions update live.
- *
- * Caller passes:
- *   - engineState        — the live engine snapshot (re-rendered as state mutates)
- *   - allergies, drugs   — passed through to LivePanel
- *   - onSync             — invoked after each chunk has been merged so the
- *                          parent (WorkflowApp) can re-snapshot the engine
- *                          into its React state
- *   - onConsultComplete  — invoked when the doctor stops the consult.
- *                          Receives the transcript + chunk count for the
- *                          handoff into the existing 7-step review flow.
- *   - onCancel           — back to the previous view without saving
- *   - orgId              — for the server-side cost guardrail
+ * Architecture (post-fix):
+ *   - Every chunk's lifecycle is rendered visibly: encoding → sending
+ *     → success | failed. Doctors are NEVER blind to what's happening.
+ *   - Errors surface in a red banner at the top of the panel — not in
+ *     11px subtext that gets missed.
+ *   - "Test pipeline" button records 3s and shows the full response
+ *     so the doctor can verify mic + AI before a real consult.
+ *   - "End Consult & Review" no longer auto-jumps to Step 2. It shows
+ *     a review card; the doctor explicitly clicks Continue once they've
+ *     confirmed what was captured. Until then they can keep recording.
  */
 
 const ConsentBanner = ({ onAccept, onReject }) => (
@@ -50,6 +45,76 @@ const ConsentBanner = ({ onAccept, onReject }) => (
   </div>
 );
 
+const STATUS_COLOR = {
+  encoding: { fg: 'var(--ink3)', bg: 'var(--surface2)', icon: '⋯' },
+  sending:  { fg: 'var(--accent)', bg: 'var(--en-t)', icon: '↗' },
+  success:  { fg: 'var(--ok)', bg: 'var(--ok-t)', icon: '✓' },
+  failed:   { fg: 'var(--danger)', bg: 'var(--danger-t)', icon: '✗' },
+};
+
+const ChunkRow = ({ chunk }) => {
+  const status = STATUS_COLOR[chunk.status] || STATUS_COLOR.encoding;
+  const transcriptPreview = chunk.transcriptDelta?.slice(0, 80) || '';
+  const entityCount = (chunk.vitalsCount || 0) + (chunk.labsCount || 0) +
+                      (chunk.drugsCount || 0) + (chunk.allergiesCount || 0);
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: '40px 70px 1fr auto',
+      gap: '10px', alignItems: 'center',
+      padding: '8px 12px',
+      borderBottom: '1px solid var(--border)',
+      background: chunk.status === 'failed' ? 'rgba(192,57,43,0.05)' : 'transparent',
+    }}>
+      <span style={{
+        fontFamily: 'var(--font-mono)', fontSize: '11px',
+        color: status.fg, fontWeight: 700,
+      }}>
+        #{chunk.sequence}
+      </span>
+      <span style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        padding: '3px 8px', borderRadius: '999px',
+        background: status.bg, color: status.fg,
+        fontSize: '10.5px', fontWeight: 700, textTransform: 'uppercase',
+        letterSpacing: '.4px',
+      }}>
+        {status.icon} {chunk.status}
+      </span>
+      <div style={{ minWidth: 0 }}>
+        {chunk.status === 'failed' ? (
+          <div style={{ fontSize: '11.5px', color: 'var(--danger)', fontFamily: 'var(--font-mono)' }}>
+            {chunk.error}
+          </div>
+        ) : chunk.status === 'success' ? (
+          <div style={{ fontSize: '11.5px', color: 'var(--ink2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {transcriptPreview ? `"${transcriptPreview}${chunk.transcriptDelta.length > 80 ? '…' : ''}"` : <em style={{ color: 'var(--ink4)' }}>(no speech detected)</em>}
+            {entityCount > 0 && (
+              <span style={{ marginLeft: '6px', fontSize: '10.5px', color: 'var(--accent)' }}>
+                +{chunk.vitalsCount > 0 ? `${chunk.vitalsCount} vitals ` : ''}
+                {chunk.labsCount > 0 ? `${chunk.labsCount} labs ` : ''}
+                {chunk.drugsCount > 0 ? `${chunk.drugsCount} drugs ` : ''}
+                {chunk.allergiesCount > 0 ? `${chunk.allergiesCount} allergies` : ''}
+              </span>
+            )}
+          </div>
+        ) : (
+          <div style={{ fontSize: '11.5px', color: 'var(--ink4)', fontStyle: 'italic' }}>
+            {chunk.status === 'encoding' ? `encoding ${chunk.sizeKb || '?'} KB blob…` : `sending ${chunk.encodedKb || '?'} KB to Gemini…`}
+          </div>
+        )}
+      </div>
+      <span style={{
+        fontFamily: 'var(--font-mono)', fontSize: '10px',
+        color: 'var(--ink4)',
+      }}>
+        {chunk.latencyMs ? `${chunk.latencyMs}ms` : ''}
+        {chunk.costInr > 0 && ` · ₹${chunk.costInr.toFixed(3)}`}
+      </span>
+    </div>
+  );
+};
+
 const LiveConsultPanel = ({
   engineState,
   allergies = [],
@@ -60,6 +125,7 @@ const LiveConsultPanel = ({
   orgId = null,
 }) => {
   const [consented, setConsented] = useState(false);
+  const [reviewing, setReviewing] = useState(false);
 
   const handleSync = useCallback(() => { onSync?.(); }, [onSync]);
 
@@ -68,13 +134,27 @@ const LiveConsultPanel = ({
   const isRecording = session.state === 'recording';
   const isRequesting = session.state === 'requesting-permission';
 
+  const successCount = session.chunks.filter(c => c.status === 'success').length;
+  const failedCount  = session.chunks.filter(c => c.status === 'failed').length;
+  const totalChunks  = session.chunks.length;
+
   const handleStart = async () => {
     if (!consented) return;
+    setReviewing(false);
     await session.start();
   };
 
   const handleEnd = () => {
     session.stop();
+    setReviewing(true);
+  };
+
+  const handleTestPipeline = async () => {
+    setReviewing(false);
+    await session.runPipelineTest();
+  };
+
+  const handleContinue = () => {
     onConsultComplete?.({
       transcript: session.transcript,
       chunkCount: session.chunkCount,
@@ -88,20 +168,47 @@ const LiveConsultPanel = ({
       <div className="mod-header">
         <div className="mod-title">🎙 Live Ambient Consult</div>
         <div className="mod-desc">
-          Speak naturally with the patient. The AI listens in 8-second chunks,
-          transcribes the conversation, and updates the differential, red
-          flags, and recommended next questions in real time. The 7-step
-          review flow auto-fills from the captured data when you end the
-          consult.
+          Speak naturally with the patient. The AI listens in 8-second chunks
+          and surfaces the transcript, differential, and red flags in real
+          time. Every chunk's status is shown below — if anything fails, you
+          see exactly why.
         </div>
       </div>
 
-      {!consented && !isRecording && (
+      {/* Prominent error banner — never hide failures in tiny text */}
+      {(session.lastError || session.error) && (
+        <div style={{
+          background: 'var(--danger-t)',
+          border: '2px solid var(--danger)',
+          borderRadius: 'var(--r-lg)',
+          padding: '12px 16px',
+          marginBottom: '14px',
+          display: 'flex',
+          gap: '10px',
+          alignItems: 'flex-start',
+        }}>
+          <span style={{ fontSize: '18px' }}>⚠</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '12px', fontWeight: 700, color: 'var(--danger)', marginBottom: '4px' }}>
+              Pipeline error
+            </div>
+            <div style={{ fontSize: '12.5px', color: 'var(--ink2)', fontFamily: 'var(--font-mono)' }}>
+              {session.lastError || String(session.error?.message || session.error)}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--ink3)', marginTop: '6px' }}>
+              Try the <strong>Test Pipeline</strong> button below to isolate the issue.
+              Common causes: mic blocked, GEMINI_API_KEY missing on server, network blocked.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!consented && !isRecording && !reviewing && (
         <ConsentBanner onAccept={() => setConsented(true)} onReject={onCancel} />
       )}
 
-      {/* Cost / latency strip — only shown when we have data */}
-      {(session.chunkCount > 0 || session.budget) && (
+      {/* Cost / latency strip */}
+      {(totalChunks > 0 || session.budget) && (
         <div style={{
           display: 'flex', gap: '14px', flexWrap: 'wrap',
           padding: '8px 14px', background: 'var(--surface2)',
@@ -109,8 +216,10 @@ const LiveConsultPanel = ({
           marginBottom: '12px', fontSize: '11.5px', fontFamily: 'var(--font-mono)',
           color: 'var(--ink3)',
         }}>
-          <span>Chunks: <strong style={{ color: 'var(--ink)' }}>{session.chunkCount}</strong></span>
-          <span>Spend: <strong style={{ color: 'var(--accent)' }}>₹{session.totalSpendInr.toFixed(2)}</strong></span>
+          <span>Sent: <strong style={{ color: 'var(--ink)' }}>{totalChunks}</strong></span>
+          <span>OK: <strong style={{ color: 'var(--ok)' }}>{successCount}</strong></span>
+          <span>Failed: <strong style={{ color: failedCount > 0 ? 'var(--danger)' : 'var(--ink3)' }}>{failedCount}</strong></span>
+          <span>Spend: <strong style={{ color: 'var(--accent)' }}>₹{session.totalSpendInr.toFixed(3)}</strong></span>
           <span>p50 latency: <strong>{session.latencyMsP50}ms</strong></span>
           {session.budget?.near_cap && (
             <span style={{ color: 'var(--warn)', fontWeight: 700 }}>
@@ -121,47 +230,88 @@ const LiveConsultPanel = ({
       )}
 
       <div className="row2" style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '14px' }}>
-        {/* LEFT: control + transcript */}
+        {/* LEFT: control + transcript + chunk feed */}
         <div>
           <div className="card" style={{ marginBottom: '14px' }}>
             <div className="card-head">
               <div className="card-title">
-                {isRecording ? '🔴 Recording' : isRequesting ? '⏳ Requesting microphone' : '🎙 Ready'}
+                {isRecording ? '🔴 Recording' : isRequesting ? '⏳ Requesting microphone' : reviewing ? '✓ Recording stopped — review captured data' : '🎙 Ready'}
               </div>
-              {session.error && (
-                <div style={{ fontSize: '11px', color: 'var(--danger)' }}>
-                  {String(session.error.message || session.error)}
-                </div>
-              )}
             </div>
-            <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-              {!isRecording ? (
-                <button
-                  className="btn btn-primary"
-                  onClick={handleStart}
-                  disabled={!consented || isRequesting}
-                  style={{ fontSize: '14px', padding: '10px 18px' }}
-                >
-                  {isRequesting ? 'Requesting…' : '⚡ Start Live Consult'}
-                </button>
-              ) : (
+            <div className="card-body" style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              {!isRecording && !reviewing && (
+                <>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleStart}
+                    disabled={!consented || isRequesting}
+                    style={{ fontSize: '14px', padding: '10px 18px' }}
+                  >
+                    {isRequesting ? 'Requesting…' : '⚡ Start Live Consult'}
+                  </button>
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleTestPipeline}
+                    disabled={isRequesting}
+                    title="Records 3 seconds and shows the full pipeline response so you can verify mic + AI before a real consult."
+                  >
+                    🧪 Test Pipeline (3s)
+                  </button>
+                </>
+              )}
+              {isRecording && (
                 <button
                   className="btn btn-secondary"
                   onClick={handleEnd}
                   style={{ fontSize: '14px', padding: '10px 18px', borderColor: 'var(--danger)', color: 'var(--danger)' }}
                 >
-                  ⏸ End Consult & Review
+                  ⏸ End Consult
                 </button>
               )}
-              <span style={{ fontSize: '11.5px', color: 'var(--ink4)' }}>
+              {reviewing && (
+                <>
+                  <button
+                    className="btn btn-primary"
+                    onClick={handleContinue}
+                    style={{ fontSize: '14px', padding: '10px 18px' }}
+                  >
+                    ✓ Continue to Review →
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={handleStart} disabled={!consented}>
+                    ↻ Resume Recording
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => { session.resetSession(); setReviewing(false); }}>
+                    Discard & Start Over
+                  </button>
+                </>
+              )}
+              <span style={{ fontSize: '11px', color: 'var(--ink4)' }}>
                 {isRecording
-                  ? '8-second chunks streaming to Gemini · India residency · Audio discarded after extraction'
-                  : 'Click start when ready. The patient must have consented above.'}
+                  ? '8s chunks · India (Mumbai) · Audio discarded after extraction'
+                  : reviewing
+                    ? `${successCount} chunk${successCount === 1 ? '' : 's'} captured · ${failedCount} failed`
+                    : 'Test the pipeline first if this is your first consult here.'}
               </span>
             </div>
           </div>
 
-          {/* Transcript */}
+          {/* Pipeline event feed — visible at all times so failures
+              are NEVER silent. */}
+          {totalChunks > 0 && (
+            <div className="card" style={{ marginBottom: '14px' }}>
+              <div className="card-head">
+                <div className="card-title">📡 Pipeline events ({totalChunks})</div>
+                <div className="card-sub">Live chunk-by-chunk status. Click a row to see the full transcript delta.</div>
+              </div>
+              <div className="card-body p0" style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                {[...session.chunks].reverse().map(c => (
+                  <ChunkRow key={c.sequence} chunk={c} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Transcript — only when there's content to show */}
           {(session.transcript || isRecording) && (
             <div className="card">
               <div className="card-head">
@@ -170,12 +320,12 @@ const LiveConsultPanel = ({
               </div>
               <div className="card-body" style={{
                 fontFamily: 'var(--font-sans)', fontSize: '13px', lineHeight: 1.7,
-                color: 'var(--ink2)', maxHeight: '420px', overflowY: 'auto',
+                color: 'var(--ink2)', maxHeight: '320px', overflowY: 'auto',
                 whiteSpace: 'pre-wrap', wordBreak: 'break-word',
               }}>
                 {session.transcript || (
                   <span style={{ color: 'var(--ink4)', fontStyle: 'italic' }}>
-                    Listening… first chunk will appear in ~10 seconds.
+                    Listening… first chunk arrives in ~10 seconds.
                   </span>
                 )}
                 {isRecording && (
@@ -189,7 +339,6 @@ const LiveConsultPanel = ({
             </div>
           )}
 
-          {/* Red flag phrases the model has surfaced */}
           {session.redFlagsHeard.length > 0 && (
             <div className="card" style={{ marginTop: '14px', borderColor: 'var(--danger)' }}>
               <div className="card-head" style={{ background: 'var(--danger-t)' }}>
@@ -209,7 +358,7 @@ const LiveConsultPanel = ({
           )}
         </div>
 
-        {/* RIGHT: live differential panel — reused from Slice 4 */}
+        {/* RIGHT: live differential panel */}
         <div>
           <LivePanel
             isProcessing={isRecording && session.chunkCount === 0}
@@ -220,10 +369,10 @@ const LiveConsultPanel = ({
         </div>
       </div>
 
-      {!isRecording && (
+      {!isRecording && !reviewing && (
         <div className="btn-row" style={{ marginTop: '14px' }}>
           <button className="btn btn-secondary" onClick={onCancel}>
-            ← Switch back to typing mode
+            ← Switch to typing mode
           </button>
         </div>
       )}

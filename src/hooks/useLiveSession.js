@@ -46,6 +46,10 @@ function median(nums) {
   return sorted.length % 2 ? sorted[m] : (sorted[m - 1] + sorted[m]) / 2;
 }
 
+// Per-chunk fetch budget. Gemini Flash audio extraction normally returns
+// in 1-2s; 30s gives plenty of headroom and surfaces network hangs.
+const CHUNK_FETCH_TIMEOUT_MS = 30_000;
+
 export function useLiveSession({ orgId = null, onSync } = {}) {
   const [transcript, setTranscript] = useState('');
   const [chunkCount, setChunkCount] = useState(0);
@@ -53,9 +57,24 @@ export function useLiveSession({ orgId = null, onSync } = {}) {
   const [latencyMsP50, setLatencyMsP50] = useState(0);
   const [redFlagsHeard, setRedFlagsHeard] = useState([]);
   const [budget, setBudget] = useState(null);
+  // Visible per-chunk timeline. Without this, when a chunk fails the
+  // doctor sees nothing — that's the #1 product-killing bug. Every
+  // chunk goes through state transitions: 'sending' → 'success' | 'failed'.
+  const [chunks, setChunks] = useState([]);
+  const [lastError, setLastError] = useState(null);
 
   const transcriptRef = useRef('');
   const latenciesRef = useRef([]);
+
+  const upsertChunk = useCallback((sequence, patch) => {
+    setChunks(prev => {
+      const idx = prev.findIndex(c => c.sequence === sequence);
+      if (idx === -1) return [...prev, { sequence, ...patch }];
+      const next = [...prev];
+      next[idx] = { ...next[idx], ...patch };
+      return next;
+    });
+  }, []);
 
   // Apply a chunk's structured deltas into the engine + corpus, then
   // re-score. The caller's onSync() snapshots the new engine state into
@@ -122,18 +141,39 @@ export function useLiveSession({ orgId = null, onSync } = {}) {
     return mutated;
   }, []);
 
-  const handleChunk = useCallback(async ({ blob, mimeType, sequence }) => {
+  const handleChunk = useCallback(async ({ blob, mimeType, sequence, durationMs }) => {
     const startedAt = Date.now();
+    const sizeKb = Math.round((blob?.size || 0) / 1024);
+
+    upsertChunk(sequence, {
+      status: 'encoding',
+      sizeKb,
+      durationMs,
+      startedAt,
+    });
+
     let audio_chunk_b64;
     try {
       audio_chunk_b64 = await blobToBase64(blob);
     } catch (err) {
-      reportError(err, { sequence }, { tags: { area: 'live.chunk', op: 'blob.encode' } });
+      const msg = `Failed to encode audio chunk: ${err?.message || err}`;
+      console.error('[live] blob.encode failed', err);
+      setLastError(msg);
+      upsertChunk(sequence, { status: 'failed', error: msg });
+      reportError(err, { sequence, sizeKb }, { tags: { area: 'live.chunk', op: 'blob.encode' } });
       return;
     }
 
+    upsertChunk(sequence, { status: 'sending', encodedKb: Math.round(audio_chunk_b64.length / 1024) });
+
     const tail = transcriptRef.current.slice(-MAX_PRIOR_TAIL_CHARS);
-    let res, json;
+
+    // Explicit timeout — without this a hung Vercel function locks the
+    // doctor with no error visible. AbortController fires at 30s.
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), CHUNK_FETCH_TIMEOUT_MS);
+
+    let res, json, fetchErr;
     try {
       res = await fetch('/api/live/transcribe', {
         method: 'POST',
@@ -145,15 +185,36 @@ export function useLiveSession({ orgId = null, onSync } = {}) {
           sequence,
           orgId,
         }),
+        signal: ac.signal,
       });
       json = await res.json().catch(() => null);
     } catch (err) {
-      reportError(err, { sequence }, { tags: { area: 'live.chunk', op: 'fetch' } });
+      fetchErr = err;
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (fetchErr) {
+      const msg = fetchErr?.name === 'AbortError'
+        ? `Chunk ${sequence} timed out after ${CHUNK_FETCH_TIMEOUT_MS / 1000}s`
+        : `Network error: ${fetchErr?.message || fetchErr}`;
+      console.error('[live] fetch failed', fetchErr);
+      setLastError(msg);
+      upsertChunk(sequence, { status: 'failed', error: msg, latencyMs: Date.now() - startedAt });
+      reportError(fetchErr, { sequence, sizeKb }, { tags: { area: 'live.chunk', op: 'fetch' } });
       return;
     }
 
     if (!res.ok || !json) {
-      const msg = json?.error || `Live transcribe failed (${res.status})`;
+      const msg = json?.error || `HTTP ${res.status} from /api/live/transcribe`;
+      console.error('[live] non-2xx response', res.status, json);
+      setLastError(msg);
+      upsertChunk(sequence, {
+        status: 'failed',
+        error: msg,
+        httpStatus: res.status,
+        latencyMs: Date.now() - startedAt,
+      });
       logEvent('ai.live.transcribe.error', { sequence, status: res.status, message: msg });
       if (res.status !== 429) {
         reportError(new Error(msg), { sequence, status: res.status }, {
@@ -163,7 +224,8 @@ export function useLiveSession({ orgId = null, onSync } = {}) {
       return;
     }
 
-    // Cost & latency telemetry
+    // Success path
+    setLastError(null);
     const meta = json._meta || {};
     if (typeof meta.costInr === 'number') setTotalSpendInr(prev => prev + meta.costInr);
     if (meta.budget) setBudget(meta.budget);
@@ -173,7 +235,6 @@ export function useLiveSession({ orgId = null, onSync } = {}) {
       setLatencyMsP50(Math.round(median(latenciesRef.current)));
     }
 
-    // Append transcript
     if (json.transcript_delta && json.transcript_delta.trim()) {
       const next = transcriptRef.current
         ? `${transcriptRef.current} ${json.transcript_delta.trim()}`
@@ -182,7 +243,21 @@ export function useLiveSession({ orgId = null, onSync } = {}) {
       setTranscript(next);
     }
 
-    // Audit (lightweight — full content_hash etc. logged separately)
+    upsertChunk(sequence, {
+      status: 'success',
+      transcriptDelta: json.transcript_delta || '',
+      hpiDelta: json.hpi_delta || '',
+      vitalsCount: json.new_vitals?.length ?? 0,
+      labsCount: json.new_labs?.length ?? 0,
+      drugsCount: json.new_drugs?.length ?? 0,
+      allergiesCount: json.new_allergies?.length ?? 0,
+      redFlagsCount: json.red_flag_phrases?.length ?? 0,
+      latencyMs: meta.latencyMs ?? Date.now() - startedAt,
+      costInr: meta.costInr ?? 0,
+      tokensIn: meta.tokensIn ?? 0,
+      tokensOut: meta.tokensOut ?? 0,
+    });
+
     logEvent('ai.live.transcribe', {
       sequence,
       tokens_in: meta.tokensIn,
@@ -201,9 +276,15 @@ export function useLiveSession({ orgId = null, onSync } = {}) {
     const mutated = applyDelta(json);
     if (mutated && onSync) onSync();
     setChunkCount(c => c + 1);
-  }, [applyDelta, onSync, orgId]);
+
+    if (Array.isArray(json.red_flag_phrases) && json.red_flag_phrases.length) {
+      setRedFlagsHeard(prev => Array.from(new Set([...prev, ...json.red_flag_phrases])));
+    }
+  }, [applyDelta, onSync, orgId, upsertChunk]);
 
   const handleAudioError = useCallback((err) => {
+    const msg = `Microphone capture failed: ${err?.message || err}`;
+    setLastError(msg);
     reportError(err, {}, { tags: { area: 'live.audio', op: 'capture' } });
   }, []);
 
@@ -213,17 +294,32 @@ export function useLiveSession({ orgId = null, onSync } = {}) {
     onError: handleAudioError,
   });
 
-  const start = useCallback(async () => {
+  // Short-cycle audio for the "Test pipeline" button — same pipeline,
+  // 3-second clip, surfaced in the same chunks state. Lets the doctor
+  // verify mic + Gemini before committing to a real consult.
+  const testAudio = useLiveAudio({
+    chunkMs: 3000,
+    onChunk: handleChunk,
+    onError: handleAudioError,
+  });
+
+  const resetSession = useCallback(() => {
     setTranscript('');
     transcriptRef.current = '';
     setChunkCount(0);
     setTotalSpendInr(0);
     setLatencyMsP50(0);
     setRedFlagsHeard([]);
+    setChunks([]);
+    setLastError(null);
     latenciesRef.current = [];
+  }, []);
+
+  const start = useCallback(async () => {
+    resetSession();
     logEvent('consult.live.start', { orgId });
     await audio.start();
-  }, [audio, orgId]);
+  }, [audio, orgId, resetSession]);
 
   const stop = useCallback(() => {
     audio.stop();
@@ -234,16 +330,33 @@ export function useLiveSession({ orgId = null, onSync } = {}) {
     });
   }, [audio, chunkCount, totalSpendInr]);
 
+  // Run a single 3-second test cycle through the entire pipeline.
+  // Auto-stops after one chunk so the doctor can see exactly what
+  // came back. Caller can read `chunks[0]` for the verdict.
+  const runPipelineTest = useCallback(async () => {
+    resetSession();
+    logEvent('consult.live.test', { orgId });
+    await testAudio.start();
+    // Stop after exactly one chunk-cycle (chunkMs + a small grace)
+    setTimeout(() => {
+      try { testAudio.stop(); } catch { /* ignore */ }
+    }, 3500);
+  }, [testAudio, orgId, resetSession]);
+
   return {
-    state: audio.state,
-    error: audio.error,
+    state: audio.state === 'idle' ? testAudio.state : audio.state,
+    error: audio.error || testAudio.error,
     transcript,
     chunkCount,
     totalSpendInr,
     latencyMsP50,
     redFlagsHeard,
     budget,
+    chunks,
+    lastError,
     start,
     stop,
+    runPipelineTest,
+    resetSession,
   };
 }
