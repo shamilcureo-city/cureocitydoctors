@@ -89,6 +89,15 @@ export function useEngine(doctorId = null) {
     });
   };
 
+  // Public sync — used by external mutators (e.g. ambient live session)
+  // that touch the engine directly and need React state to follow.
+  const syncFromEngine = useCallback(() => {
+    syncState();
+    setPatientState({ ...EngineCore.getPatient() });
+    setVitalsState({ ...EngineCore.getVitals() });
+    setAllergiesState([...EngineCore.getAllergies()]);
+  }, []);
+
   const analyzeNarrative = useCallback(async (input) => {
     // Accept either a string (legacy text path) or { text, audio } (voice path).
     const { text = '', audio = null } = typeof input === 'string' ? { text: input } : (input || {});
@@ -365,5 +374,7 @@ export function useEngine(doctorId = null) {
     lookupKB: EngineCore.lookupKB,
     // Slice 9 — Critical-value alerts
     getCriticalLabAlerts: EngineCore.getCriticalLabAlerts,
+    // Phase 1 — ambient live session sync hook
+    syncFromEngine,
   };
 }

@@ -4,6 +4,7 @@ import Sidebar from './Sidebar';
 import NotesModal from './NotesModal';
 import LivePanel from './LivePanel';
 import IntakePanel from './IntakePanel';
+import LiveConsultPanel from './LiveConsultPanel';
 import SymptomBuilder from './SymptomBuilder';
 import ExamPanel from './ExamPanel';
 import MedicationsPanel from './MedicationsPanel';
@@ -46,9 +47,11 @@ const WorkflowApp = ({ user }) => {
     getRxDrugOptions, getRxSafetyAlerts, buildRxAdvice, buildReferralLetter,
     searchKB, getAllKB,
     getCriticalLabAlerts,
+    syncFromEngine,
   } = useEngine(user?.id ?? null);
 
   const [activeKB, setActiveKB] = useState(null);
+  const [intakeMode, setIntakeMode] = useState('live'); // 'live' | 'type'
 
   const [notesOpen, setNotesOpen] = useState(false);
 
@@ -160,20 +163,75 @@ const WorkflowApp = ({ user }) => {
           <PaediatricBanner patient={patient} />
           <CriticalValueOverlay alerts={getCriticalLabAlerts ? getCriticalLabAlerts() : []} />
           {activeStep === 1 && (
-            <IntakePanel
-              onProcess={handleProcessIntake}
-              isProcessing={isProcessing}
-              extraction={extraction}
-              extractionError={extractionError}
-              patient={patient}
-              onPatientChange={setPatientField}
-              vitals={vitals}
-              onVitalChange={setVital}
-              allergies={allergies}
-              allergyConflicts={allergyConflicts}
-              onAddAllergy={addAllergy}
-              onRemoveAllergy={removeAllergy}
-            />
+            <>
+              <div style={{
+                display: 'flex', gap: '6px', marginBottom: '12px',
+                padding: '4px', background: 'var(--surface2)',
+                border: '1px solid var(--border)', borderRadius: 'var(--r)',
+                width: 'fit-content',
+              }}>
+                <button
+                  onClick={() => setIntakeMode('live')}
+                  style={{
+                    padding: '6px 14px', fontSize: '12px', fontWeight: 600,
+                    border: 'none', borderRadius: 'calc(var(--r) - 2px)',
+                    cursor: 'pointer',
+                    background: intakeMode === 'live' ? 'var(--accent)' : 'transparent',
+                    color: intakeMode === 'live' ? '#fff' : 'var(--ink2)',
+                  }}
+                >
+                  🎙 Live Ambient Mode
+                </button>
+                <button
+                  onClick={() => setIntakeMode('type')}
+                  style={{
+                    padding: '6px 14px', fontSize: '12px', fontWeight: 600,
+                    border: 'none', borderRadius: 'calc(var(--r) - 2px)',
+                    cursor: 'pointer',
+                    background: intakeMode === 'type' ? 'var(--accent)' : 'transparent',
+                    color: intakeMode === 'type' ? '#fff' : 'var(--ink2)',
+                  }}
+                >
+                  ⌨️ Type Narrative
+                </button>
+              </div>
+
+              {intakeMode === 'live' ? (
+                <LiveConsultPanel
+                  engineState={engineState}
+                  drugs={engineState.drugs}
+                  allergies={allergies}
+                  onSync={syncFromEngine}
+                  onConsultComplete={() => {
+                    // Hand off to the existing review flow at Step 2
+                    setSteps(prev => prev.map(s => {
+                      if (s.id === 1) return { ...s, active: false, locked: false };
+                      if (s.id === 2) return { ...s, active: true, locked: false };
+                      if (s.id > 2) return { ...s, locked: false };
+                      return s;
+                    }));
+                    logEvent('workflow.stepChange', { from: 1, to: 2, reason: 'liveConsultComplete' });
+                    setActiveStep(2);
+                  }}
+                  onCancel={() => setIntakeMode('type')}
+                />
+              ) : (
+                <IntakePanel
+                  onProcess={handleProcessIntake}
+                  isProcessing={isProcessing}
+                  extraction={extraction}
+                  extractionError={extractionError}
+                  patient={patient}
+                  onPatientChange={setPatientField}
+                  vitals={vitals}
+                  onVitalChange={setVital}
+                  allergies={allergies}
+                  allergyConflicts={allergyConflicts}
+                  onAddAllergy={addAllergy}
+                  onRemoveAllergy={removeAllergy}
+                />
+              )}
+            </>
           )}
 
           {activeStep === 2 && (
