@@ -1,0 +1,46 @@
+#:schema node_modules/wrangler/config-schema.json
+# Cureocity realtime WebSocket bridge.
+#
+# Deploy:
+#   cd cloudflare-workers/realtime
+#   npm install
+#   npx wrangler login
+#   npx wrangler deploy
+#
+# Set secrets (one-time):
+#   npx wrangler secret put GEMINI_API_KEY
+#   npx wrangler secret put SUPABASE_URL
+#   npx wrangler secret put SUPABASE_ANON_KEY
+#   npx wrangler secret put SUPABASE_SERVICE_ROLE_KEY
+#
+# After deploy, the worker is reachable at:
+#   wss://<name>.<your-subdomain>.workers.dev/v1/session
+# Set VITE_REALTIME_URL in Vercel to that URL.
+
+name = "cureocity-realtime"
+main = "src/index.js"
+compatibility_date = "2025-12-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Pin to ap-south-1 (Mumbai colo) for India residency where possible.
+# Cloudflare's geo-routing doesn't guarantee a specific colo, but
+# placement hints reduce cross-region hops for Indian users.
+[placement]
+mode = "smart"
+
+# Per-session Durable Object — holds the Gemini Live socket + state.
+[[durable_objects.bindings]]
+name = "SESSION"
+class_name = "SessionDO"
+
+# Required migration to register the DO class.
+[[migrations]]
+tag = "v1"
+new_classes = ["SessionDO"]
+
+# Plain (non-secret) vars. Secrets are set via `wrangler secret put`.
+[vars]
+STT_PROVIDER = "gemini"        # "gemini" | "assemblyai"
+GEMINI_LIVE_MODEL = "gemini-live-2.5-flash"
+ALLOWED_ORIGINS = "https://cureocitydoctors.in,https://cureocitydoctors.vercel.app,http://localhost:5173"
+PROTOCOL_VERSION = "0.1.0"
