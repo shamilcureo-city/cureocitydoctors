@@ -3,6 +3,7 @@ import { EngineCore, processIntake, updateLab as engineUpdateLab, S } from '../e
 import { logEvent } from '../utils/auditLog';
 import { appendCaseEvent, ensureActiveCase, getActiveCaseId } from '../lib/casePersistence';
 import { extractIntake, logAiCall, USE_GEMINI } from '../lib/aiClient';
+import { reportError } from '../lib/errorReporting';
 
 const RESCORE_DEBOUNCE_MS = 700;
 
@@ -170,7 +171,7 @@ export function useEngine(doctorId = null) {
       return true;
     } catch (err) {
       record('intake.analyze.error', { provider: 'regex', message: err?.message });
-      console.error('Engine failed to process narrative:', err);
+      reportError(err, { length: text?.length }, { tags: { area: 'engine.intake', op: 'analyze' } });
       return false;
     }
   }, [record, doctorId]);
@@ -183,7 +184,7 @@ export function useEngine(doctorId = null) {
       return true;
     } catch (err) {
       record('gap.fill.error', { key, message: err?.message });
-      console.error('Engine failed to fill gap:', err);
+      reportError(err, { gapKey: key }, { tags: { area: 'engine', op: 'gap.fill' } });
       return false;
     }
   }, [record]);
@@ -196,7 +197,7 @@ export function useEngine(doctorId = null) {
       return true;
     } catch (err) {
       record('exam.toggleFinding.error', { sysId, term, message: err?.message });
-      console.error('Engine failed to toggle exam finding:', err);
+      reportError(err, { sysId, term }, { tags: { area: 'engine', op: 'exam.toggle' } });
       return false;
     }
   }, [record]);
@@ -209,7 +210,7 @@ export function useEngine(doctorId = null) {
       return true;
     } catch (err) {
       record('exam.fillVital.error', { sysId, key, message: err?.message });
-      console.error('Engine failed to fill exam vital:', err);
+      reportError(err, { sysId, vitalKey: key }, { tags: { area: 'engine', op: 'exam.vital' } });
       return false;
     }
   }, [record]);
@@ -224,7 +225,7 @@ export function useEngine(doctorId = null) {
       return true;
     } catch (err) {
       record('lab.update.error', { key, message: err?.message });
-      console.error('Engine failed to update lab:', err);
+      reportError(err, { labKey: key }, { tags: { area: 'engine', op: 'lab.update' } });
       return false;
     }
   }, [record]);
@@ -241,7 +242,7 @@ export function useEngine(doctorId = null) {
       return true;
     } catch (err) {
       record('drug.add.error', { name, message: err?.message });
-      console.error('Engine failed to add drug:', err);
+      reportError(err, { drugName: name }, { tags: { area: 'engine', op: 'drug.add' } });
       return false;
     }
   }, [record]);
@@ -254,7 +255,7 @@ export function useEngine(doctorId = null) {
       return true;
     } catch (err) {
       record('drug.remove.error', { index, message: err?.message });
-      console.error('Engine failed to remove drug:', err);
+      reportError(err, { index }, { tags: { area: 'engine', op: 'drug.remove' } });
       return false;
     }
   }, [record]);

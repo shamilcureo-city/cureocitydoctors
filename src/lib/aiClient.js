@@ -3,6 +3,7 @@
 // reasoning later. Routing/swap should be a config change, not a refactor —
 // hence this single boundary.
 import { supabase, supabaseConfigured } from './supabaseClient';
+import { reportError } from './errorReporting';
 
 export const USE_GEMINI = import.meta.env.VITE_USE_GEMINI === 'true';
 
@@ -27,9 +28,25 @@ export async function extractIntake({ text, audio } = {}) {
     const json = await res.json().catch(() => null);
     if (!res.ok) {
       const msg = json?.error || `Extraction failed (${res.status})`;
-      throw new Error(msg);
+      const err = new Error(msg);
+      // Don't double-report budget blocks — they're expected, not bugs.
+      if (res.status !== 429) {
+        reportError(err, { httpStatus: res.status }, {
+          tags: { area: 'ai.intake.extract', provider: 'gemini' },
+          level: 'error',
+        });
+      }
+      throw err;
     }
     return json;
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      reportError(new Error('Intake extraction timed out'), { timeoutMs: EXTRACT_TIMEOUT_MS }, {
+        tags: { area: 'ai.intake.extract', failureMode: 'timeout' },
+        level: 'warning',
+      });
+    }
+    throw err;
   } finally {
     clearTimeout(timer);
   }
@@ -55,7 +72,14 @@ export async function streamReasoning({ caseSummary, citations = [], onDelta, si
 
   if (!res.ok) {
     const errText = await res.text().catch(() => `HTTP ${res.status}`);
-    throw new Error(errText || `Reasoning failed (${res.status})`);
+    const err = new Error(errText || `Reasoning failed (${res.status})`);
+    if (res.status !== 429) {
+      reportError(err, { httpStatus: res.status }, {
+        tags: { area: 'ai.reasoning', provider: 'anthropic' },
+        level: 'error',
+      });
+    }
+    throw err;
   }
   if (!res.body) throw new Error('Streaming not supported by this browser');
 
