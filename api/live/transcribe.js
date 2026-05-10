@@ -30,6 +30,12 @@ import { checkOrgBudget, budgetBlockedResponse } from '../_lib/budgetCheck.js';
 export const config = {
   runtime: 'nodejs',
   regions: ['bom1'],
+  // Default Vercel Hobby function timeout is 10s. Gemini 2.5 Flash on
+  // an 8s audio chunk with our diarization + next-question schema
+  // routinely takes 10-20s. At the default, every chunk is killed
+  // mid-flight and the client sees a timeout. 60s is the Hobby ceiling
+  // — gives Gemini all the room it needs without sitting idle.
+  maxDuration: 60,
 };
 
 const MODEL = 'gemini-2.5-flash';

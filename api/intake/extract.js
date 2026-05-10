@@ -25,6 +25,10 @@ import { checkOrgBudget, budgetBlockedResponse } from '../_lib/budgetCheck.js';
 export const config = {
   runtime: 'nodejs',
   regions: ['bom1'],
+  // Audio extraction with Gemini Flash on 1-3 minute clips can take
+  // 15-40s. Default 10s would kill the function mid-flight. 60s is the
+  // Vercel Hobby ceiling.
+  maxDuration: 60,
 };
 
 const MODEL = 'gemini-2.5-flash';
