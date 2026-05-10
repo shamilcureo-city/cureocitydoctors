@@ -291,6 +291,8 @@ const PrescriptionPanel = ({
   buildReferralLetter,
   onNext,
   onPrev,
+  onRxFinalized,        // ({ drugs, advice, followUpDays }) → Promise — used to persist Rx
+  onReferralGenerated,  // ({ letter }) → Promise — used to persist referral
 }) => {
   const [selected, setSelected] = useState([]); // [{drugId, drug, condId, condName, lineLabel}]
   const [patientName, setPatientName] = useState('');
@@ -334,16 +336,47 @@ const PrescriptionPanel = ({
   const safety = useMemo(() => getRxSafetyAlerts(selected), [selected, getRxSafetyAlerts]);
   const advice = useMemo(() => buildRxAdvice(selected), [selected, buildRxAdvice]);
 
-  const handleGenerateRx = () => {
+  const handleGenerateRx = async () => {
     if (!selected.length) {
       window.alert('Add at least one drug to the prescription pad first.');
       return;
     }
     setShowFinal(true);
     setReferral(null);
+
+    // Persist the Rx to the database for analytics / pharmacist fulfilment.
+    // The parent (WorkflowApp) holds consultationId/orgId/patientId/doctorId
+    // and calls savePrescription with them. Failure here is non-blocking —
+    // the printable Rx still renders so the doctor isn't gated on DB hiccups.
+    if (onRxFinalized) {
+      try {
+        const drugs = selected.map(s => ({
+          generic: s.drug.generic,
+          brand_india: s.drug.brand_india || null,
+          dose: s.drug.dose || null,
+          route: s.drug.route || null,
+          freq: s.drug.freq || null,
+          duration: s.drug.duration || null,
+          timing_grid: mapToIndianTiming(s.drug.freq, s.drug.route),
+          form_prefix: getFormPrefix(s.drug.route, s.drug.generic),
+          risk: s.drug.risk || 'low',
+          notes: s.drug.notes || null,
+          condition_id: s.condId,
+          condition_name: s.condName,
+          line_label: s.lineLabel,
+        }));
+        await onRxFinalized({
+          drugs,
+          advice: advice.items?.join(' · ') || null,
+          followUpDays: parseInt(advice.followUpDays) || null,
+        });
+      } catch {
+        // Reported by callback's own try/catch + Sentry; UI continues.
+      }
+    }
   };
 
-  const handleGenerateReferral = () => {
+  const handleGenerateReferral = async () => {
     const letter = buildReferralLetter({
       selectedDrugs: selected,
       patientName,
@@ -352,6 +385,14 @@ const PrescriptionPanel = ({
     });
     setReferral(letter);
     setShowFinal(false);
+
+    if (onReferralGenerated) {
+      try {
+        await onReferralGenerated({ letter });
+      } catch {
+        // already reported
+      }
+    }
   };
 
   if (!engineState.rawInput) {
