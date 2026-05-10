@@ -12,6 +12,7 @@
 // Anthropic inference itself routes via api.anthropic.com (US).
 
 import Anthropic from '@anthropic-ai/sdk';
+import { checkOrgBudget, budgetBlockedResponse } from '../_lib/budgetCheck.js';
 
 export const config = {
   runtime: 'nodejs',
@@ -68,6 +69,7 @@ export default async function handler(req) {
 
   const caseSummary = typeof body?.caseSummary === 'string' ? body.caseSummary.trim() : '';
   const citations = Array.isArray(body?.citations) ? body.citations : [];
+  const orgId = typeof body?.orgId === 'string' ? body.orgId : null;
   const model = (body?.settings?.model && typeof body.settings.model === 'string')
     ? body.settings.model
     : DEFAULT_MODEL;
@@ -76,6 +78,10 @@ export default async function handler(req) {
   if (caseSummary.length > MAX_INPUT_CHARS) {
     return badRequest(`caseSummary too long (max ${MAX_INPUT_CHARS} chars)`, 413);
   }
+
+  // Cost cap — Claude Opus is the most expensive thing we run. Don't bypass.
+  const budget = await checkOrgBudget(orgId);
+  if (budget.blocked) return budgetBlockedResponse(budget);
 
   // Build the user message: case summary + KB excerpts as a single Markdown blob.
   const citationsText = citations.length
@@ -141,6 +147,11 @@ export default async function handler(req) {
             costInr: Number(costInr.toFixed(4)),
             latencyMs,
             chars: totalText.length,
+            budget: {
+              today_spend_inr: budget.todaySpendInr,
+              cap_inr: budget.capInr,
+              near_cap: budget.nearCap,
+            },
           },
         });
       } catch (err) {

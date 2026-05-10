@@ -79,3 +79,9 @@ export { kbeScoreAll, kbeScoreCondition } from './cureocityEngine.js';
 // createSessionState() returns a fresh state shape; getSessionSnapshot()
 // captures the current live state for audit/persistence.
 export { createSessionState, getSessionSnapshot } from './cureocityEngine.js';
+
+// ── KB versioning (Sprint 1.5) ───────────────────────────────────
+// Every consultation references the exact KB content used to score it.
+// KB_VERSION is the human-readable string (kb-YYYY-MM-DD-<hash>) that
+// gets stored on consultations.kb_version.
+export { KB_VERSION, KB_CONTENT_HASH, KB_CONDITION_COUNT } from './kbVersion.js';
