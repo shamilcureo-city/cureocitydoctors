@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { EngineCore } from '../engine/cureocityEngine';
+import { EngineCore } from '../engine/index.js';
 
 const SECTION_LABELS = {
   cbc: 'Complete Blood Count',

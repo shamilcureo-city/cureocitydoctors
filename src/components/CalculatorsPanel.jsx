@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { CALCULATORS } from '../engine/cureocityEngine';
+import { CALCULATORS } from '../engine/index.js';
 
 const CalcCard = ({ calc, isRelevant, autofill, computeScore, expandedDefault, patient }) => {
   const [vals, setVals] = useState(() => ({ ...autofill }));

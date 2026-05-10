@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { EngineCore, processIntake, updateLab as engineUpdateLab, S } from '../engine/cureocityEngine';
+import { EngineCore, processIntake, updateLab as engineUpdateLab, S } from '../engine/index.js';
 import { logEvent } from '../utils/auditLog';
 import { appendCaseEvent, ensureActiveCase, getActiveCaseId } from '../lib/casePersistence';
 import { extractIntake, logAiCall, USE_GEMINI } from '../lib/aiClient';

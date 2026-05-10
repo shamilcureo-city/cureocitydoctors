@@ -3,7 +3,7 @@ import {
   KB_ID_MAP,
   LAB_DEFS,
   getLabStatus,
-} from '../engine/cureocityEngine';
+} from '../engine/index.js';
 
 const SYS_NAME = {
   cv: 'Cardiovascular', rs: 'Respiratory', en: 'Endocrine', nr: 'Neurological',

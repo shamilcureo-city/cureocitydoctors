@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ICD10_DB } from '../engine/cureocityEngine';
+import { ICD10_DB } from '../engine/index.js';
 
 const ICDRow = ({ entry, isSelected, onToggle }) => (
   <div className={`icd-result${isSelected ? ' selected' : ''}`} onClick={() => onToggle(entry.code)}>
