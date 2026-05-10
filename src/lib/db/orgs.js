@@ -120,6 +120,16 @@ export async function getMyOrgs() {
     console.warn('[db.orgs] getMyOrgs failed', error);
     return [];
   }
+  if (!data || data.length === 0) {
+    // Defensive logging — this path is *the* most reported support
+    // issue. If RLS or session is the cause we want to see it in the
+    // console, not chase ghosts in a screenshot.
+    const { data: { user } } = await supabase.auth.getUser();
+    console.info('[db.orgs] getMyOrgs returned empty', {
+      authed_user_id: user?.id || null,
+      authed_email: user?.email || null,
+    });
+  }
   return data || [];
 }
 
