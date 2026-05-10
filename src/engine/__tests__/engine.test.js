@@ -25,13 +25,19 @@ import {
   ALLERGY_CROSS_REACTIVITY,
   LAB_DEFS,
   CLINICAL_KB,
+  CLINICAL_NOTES,
+  S_VITALS,
+  S_ALLERGIES,
   // engine API
   EngineCore,
   S,
   processIntake,
   checkInteractions,
   lookupKB,
-} from '../cureocityEngine.js';
+  // session factory (Sprint 1.3)
+  createSessionState,
+  getSessionSnapshot,
+} from '../index.js';
 
 // ---------------------------------------------------------------------------
 // termPresent — corpus-aware substring matching, foundation of every detector
@@ -382,5 +388,145 @@ describe('getCriticalLabAlerts', () => {
     expect(alerts.length).toBeGreaterThan(0);
     expect(alerts[0].test).toBe('k');
     expect(alerts[0].value).toBeGreaterThan(6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sprint 1.3 — Session isolation: starting a new case must not inherit the
+// previous case's state. Real bug class — doctor A's prescription leaking
+// into doctor B's case is a malpractice landmine.
+// ---------------------------------------------------------------------------
+describe('Session isolation (resetCase)', () => {
+  it('clears patient + corpus + differential on resetCase', () => {
+    EngineCore.resetCase();
+    EngineCore.setPatient({ age: 62, gender: 'M', comorbid: 'htn, dm' });
+    EngineCore.setRawInput('chest pain radiating to jaw');
+    processIntake();
+
+    expect(S.patient.age).toBe(62);
+    expect(S.rawInput).toBeTruthy();
+    expect(Object.keys(S.activeSystems).length).toBeGreaterThan(0);
+
+    EngineCore.resetCase();
+
+    expect(S.patient.age).toBeNull();
+    expect(S.patient.gender).toBe('');
+    expect(S.patient.comorbid).toBe('');
+    expect(S.rawInput).toBe('');
+    expect(S.corpus).toBe('');
+    expect(Object.keys(S.activeSystems)).toEqual([]);
+    expect(S.redFlags).toEqual([]);
+    expect(S.differential.t1).toEqual([]);
+    expect(S.differential.t2).toEqual([]);
+    expect(S.differential.t3).toEqual([]);
+  });
+
+  it('clears vitals + allergies on resetCase', () => {
+    EngineCore.resetCase();
+    EngineCore.setVital('hr', '110');
+    EngineCore.setVital('sbp', '160');
+    EngineCore.addAllergy('Penicillin', 'rash', 'severe');
+
+    expect(S_VITALS.hr).toBe('110');
+    expect(S_ALLERGIES.length).toBe(1);
+
+    EngineCore.resetCase();
+
+    expect(Object.keys(S_VITALS)).toEqual([]);
+    expect(S_ALLERGIES).toEqual([]);
+  });
+
+  it('clears clinical notes on resetCase', () => {
+    EngineCore.resetCase();
+    EngineCore.saveNotes({ intake: 'Doctor A note', impression: 'Plan A' });
+
+    expect(CLINICAL_NOTES.intake).toBe('Doctor A note');
+    expect(CLINICAL_NOTES.impression).toBe('Plan A');
+
+    EngineCore.resetCase();
+
+    expect(CLINICAL_NOTES.intake).toBe('');
+    expect(CLINICAL_NOTES.impression).toBe('');
+  });
+
+  it('does NOT leak state from consult A into consult B end-to-end', () => {
+    // Consult A — chest pain ACS
+    EngineCore.resetCase();
+    EngineCore.setPatient({ age: 62, gender: 'M', comorbid: 'htn' });
+    EngineCore.setRawInput('central chest pain, sweating, dyspnoea, started 1 hour ago.');
+    EngineCore.setVital('hr', '110');
+    EngineCore.addAllergy('Aspirin', 'urticaria', 'moderate');
+    EngineCore.saveNotes({ intake: 'A note' });
+    processIntake();
+    const snapA = getSessionSnapshot();
+
+    // Consult B — should start fresh
+    EngineCore.resetCase();
+    expect(S.patient.age).toBeNull();
+    expect(S_VITALS.hr).toBeUndefined();
+    expect(S_ALLERGIES).toEqual([]);
+    expect(CLINICAL_NOTES.intake).toBe('');
+    expect(S.differential.t1).toEqual([]);
+    expect(S.differential.t3).toEqual([]);
+
+    // Now do consult B
+    EngineCore.setPatient({ age: 25, gender: 'F', comorbid: '' });
+    EngineCore.setRawInput('headache and fever for 3 days');
+    processIntake();
+    const snapB = getSessionSnapshot();
+
+    // Snapshot A still preserved (mutating session doesn't affect snapshots)
+    expect(snapA.S.patient.age).toBe(62);
+    expect(snapA.S_VITALS.hr).toBe('110');
+    expect(snapA.S_ALLERGIES.length).toBe(1);
+
+    // Snapshot B is independent
+    expect(snapB.S.patient.age).toBe(25);
+    expect(snapB.S_VITALS.hr).toBeUndefined();
+    expect(snapB.S_ALLERGIES.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createSessionState — Phase 1 ambient streaming will use this for per-tab
+// isolation. Verify shape matches the live module-level state.
+// ---------------------------------------------------------------------------
+describe('createSessionState factory', () => {
+  it('returns the expected top-level keys', () => {
+    const fresh = createSessionState();
+    expect(Object.keys(fresh).sort()).toEqual([
+      'CALC_STATE', 'CLINICAL_NOTES', 'S', 'S_ALLERGIES', 'S_ICD', 'S_RX', 'S_VITALS',
+    ]);
+  });
+  it('returns an empty S with the canonical shape', () => {
+    const fresh = createSessionState();
+    expect(fresh.S.step).toBe(1);
+    expect(fresh.S.patient).toEqual({ age: null, gender: '', comorbid: '' });
+    expect(fresh.S.differential).toEqual({ t1: [], t2: [], t3: [] });
+    expect(fresh.S.rawInput).toBe('');
+    expect(fresh.S_RX.doctorName).toBe('Dr.');
+    expect(fresh.S_ICD.selected).toBeInstanceOf(Set);
+    expect(fresh.S_ICD.selected.size).toBe(0);
+  });
+  it('returns a NEW state object each call (no shared references)', () => {
+    const a = createSessionState();
+    const b = createSessionState();
+    a.S.rawInput = 'hello';
+    a.S_VITALS.hr = '100';
+    expect(b.S.rawInput).toBe('');
+    expect(b.S_VITALS.hr).toBeUndefined();
+  });
+});
+
+describe('getSessionSnapshot', () => {
+  it('captures the live state without sharing references', () => {
+    EngineCore.resetCase();
+    EngineCore.setPatient({ age: 40, gender: 'M', comorbid: '' });
+    const snap = getSessionSnapshot();
+    expect(snap.S.patient.age).toBe(40);
+
+    // Mutating the snapshot does not affect the live state
+    snap.S.patient.age = 99;
+    expect(S.patient.age).toBe(40);
   });
 });
