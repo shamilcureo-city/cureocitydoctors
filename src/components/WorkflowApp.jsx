@@ -5,6 +5,7 @@ import NotesModal from './NotesModal';
 import LivePanel from './LivePanel';
 import IntakePanel from './IntakePanel';
 import LiveConsultPanel from './LiveConsultPanel';
+import PatientStartCard from './PatientStartCard';
 import SymptomBuilder from './SymptomBuilder';
 import ExamPanel from './ExamPanel';
 import MedicationsPanel from './MedicationsPanel';
@@ -21,6 +22,8 @@ import { useEngine } from '../hooks/useEngine';
 import { logEvent } from '../utils/auditLog';
 import { signOut } from '../lib/auth';
 import { clearActiveCase } from '../lib/casePersistence';
+import { getActiveOrg } from '../lib/db';
+import { EngineCore } from '../engine/index.js';
 
 const WorkflowApp = ({ user }) => {
   const [activeStep, setActiveStep] = useState(1);
@@ -53,7 +56,21 @@ const WorkflowApp = ({ user }) => {
   const [activeKB, setActiveKB] = useState(null);
   const [intakeMode, setIntakeMode] = useState('live'); // 'live' | 'type'
 
+  // Phase 2 — patient continuity context
+  const [activeOrg, setActiveOrg] = useState(null);
+  const [activePatient, setActivePatient] = useState(null);
+
   const [notesOpen, setNotesOpen] = useState(false);
+
+  // Load the doctor's active org once on sign-in. Used by all DB writes
+  // and by /api/* budget cap.
+  useEffect(() => {
+    let cancelled = false;
+    getActiveOrg().then(org => {
+      if (!cancelled) setActiveOrg(org);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const [steps, setSteps] = useState([
     { id: 1, label: 'Intake', sublabel: 'Complaint + History', active: true, locked: false },
@@ -162,8 +179,49 @@ const WorkflowApp = ({ user }) => {
         <main>
           <PaediatricBanner patient={patient} />
           <CriticalValueOverlay alerts={getCriticalLabAlerts ? getCriticalLabAlerts() : []} />
-          {activeStep === 1 && (
+          {activeStep === 1 && !activePatient && (
+            <PatientStartCard
+              orgId={activeOrg?.id}
+              onPatientReady={({ patient, isReturning }) => {
+                EngineCore.loadPatient(patient);
+                setActivePatient(patient);
+                syncFromEngine();
+                logEvent('consult.patient.loaded', {
+                  patient_id: patient.id,
+                  org_id: activeOrg?.id,
+                  is_returning: isReturning,
+                });
+              }}
+            />
+          )}
+
+          {activeStep === 1 && activePatient && (
             <>
+              {/* Patient identity strip — visible above the intake mode toggle */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap',
+                padding: '8px 14px', background: 'var(--surface2)',
+                border: '1px solid var(--border)', borderRadius: 'var(--r)',
+                marginBottom: '12px', fontSize: '12px',
+              }}>
+                <span style={{ fontWeight: 700, color: 'var(--ink)' }}>
+                  👤 {activePatient.name || 'Patient'}
+                </span>
+                <span style={{ color: 'var(--ink2)' }}>
+                  {activePatient.age || '?'}y · {activePatient.gender === 'F' ? 'Female' : activePatient.gender === 'M' ? 'Male' : '—'}
+                </span>
+                <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--ink4)', fontSize: '11px' }}>
+                  {activePatient.phone_e164}
+                </span>
+                <button
+                  onClick={() => { setActivePatient(null); resetCase(); }}
+                  className="btn btn-xs btn-secondary"
+                  style={{ marginLeft: 'auto', color: 'var(--ink3)' }}
+                >
+                  ↶ Change patient
+                </button>
+              </div>
+
               <div style={{
                 display: 'flex', gap: '6px', marginBottom: '12px',
                 padding: '4px', background: 'var(--surface2)',
