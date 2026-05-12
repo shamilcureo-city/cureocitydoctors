@@ -10,8 +10,12 @@ import { setUserContext } from './lib/errorReporting';
 // Lazy-load the 8.3k-line clinical engine (and the workflow that uses it)
 // so Landing/Auth first-paint stays fast on Indian 4G.
 const WorkflowApp = lazy(() => import('./components/WorkflowApp'));
+const SpikeRoute = lazy(() => import('./components/spike/SpikeRoute.jsx'));
 
 const VIEW_KEY = 'cx_view_v1';
+
+const isSpikeRoute =
+  typeof window !== 'undefined' && window.location.pathname === '/spike/live';
 
 function WorkflowFallback() {
   return (
@@ -56,6 +60,14 @@ function App() {
         </div>
         <div className="app-loading-spinner" />
       </div>
+    );
+  }
+
+  if (isSpikeRoute) {
+    return (
+      <Suspense fallback={<WorkflowFallback />}>
+        <SpikeRoute />
+      </Suspense>
     );
   }
 
