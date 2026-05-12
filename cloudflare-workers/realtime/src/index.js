@@ -15,8 +15,6 @@ import { authenticateRequest } from './auth.js';
 
 export { SessionDO };
 
-const HEALTHZ = new Response('ok', { status: 200 });
-
 function corsHeaders(origin, allowed) {
   if (!origin) return {};
   if (allowed.includes(origin) || allowed.includes('*')) {
