@@ -116,10 +116,14 @@ export function useLiveStream({ realtimeUrl = DEFAULT_REALTIME_URL, onEvent } = 
     dispatch({ type: 'connecting' });
 
     // 1. Open WebSocket
+    //    The Worker requires consultationId in the URL to route to the
+    //    right Durable Object; orgId is forwarded as an internal header.
     let ws;
     try {
       const url = new URL(realtimeUrl);
       if (authToken) url.searchParams.set('token', authToken);
+      if (consultationId) url.searchParams.set('consultationId', consultationId);
+      if (orgId) url.searchParams.set('orgId', orgId);
       ws = new WebSocket(url.toString());
     } catch (err) {
       dispatch({ type: 'error', error: err });
