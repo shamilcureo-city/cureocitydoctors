@@ -34,9 +34,13 @@ name = "SESSION"
 class_name = "SessionDO"
 
 # Required migration to register the DO class.
+# `new_sqlite_classes` (rather than `new_classes`) is mandatory on the
+# Workers Free plan — Cloudflare requires SQLite-backed DO storage on
+# free tier. SQLite-backed DOs are the recommended storage type on paid
+# plans too, so no future migration is required if/when we upgrade.
 [[migrations]]
 tag = "v1"
-new_classes = ["SessionDO"]
+new_sqlite_classes = ["SessionDO"]
 
 # Plain (non-secret) vars. Secrets are set via `wrangler secret put`.
 [vars]
