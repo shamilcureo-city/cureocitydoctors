@@ -22,7 +22,7 @@ Workers + Durable Objects are purpose-built for this:
 ### Prereqs
 
 - Cloudflare account (free is fine)
-- Node 20+ locally
+- Node 20+ locally (or use the dashboard GitHub-connected build)
 - Gemini API key with Gemini Live API access enabled
 - Supabase URL + anon + service-role keys
 
@@ -201,3 +201,5 @@ expect. Worker caches the list for 60s — wait or redeploy to refresh.
 - The Worker is stateless across deploys; DOs persist between deploys
   unless the migration tag is bumped (which would orphan in-flight
   sessions). Treat DO migrations as production-impacting.
+
+<!-- build trigger: 2026-05-10 -->
